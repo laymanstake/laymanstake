@@ -22,11 +22,11 @@ ForEach ($User in $Users) {
   $mailto = $Mail
   $msg = @"
 <b>Dear $DisplayName</b>, <br /> <br />
-Your SITA Corporate SSO password (The one you use to log into your workstation, also known as Active Directory) for <b>$SamAccountName</b> will expire in $Expirationdays $ddisplay (on $ExpirationDate).  This will disable your access to all SITA SSO Services.<br /> <br /> For more information on your AD account, password reset and SSO please visit https://sita365.sharepoint.com/sites/thehub/IT/Article/password-reset-ad-and-sso  <br /><br />
-==> PLEASE CHANGE YOUR PASSWORD NOW : To reset your password from your PC press simultaneously the key "Ctrl" + "Alt" + "Delete" and then select the option "Change a password...". Alternatively visit the self-service password reset website at :  https://aka.ms/sspr or https://sts.sita.aero/adfs/portal/updatepassword  <br /><br />Additionally, we have a useful video on resetting your password available here: https://web.microsoftstream.com/video/3c9e4470-38b8-4927-bcbd-ec895a5f24c4  <br /><br /> Note: The same options are not applicable for admin.xx accounts, which would need to reset by any machine in Corp Network or with assistance of <a href=`"mailto:corporate.support@sita.aero`">Corporate Helpdesk</a>. <br /><br />
-<b>Note:</b> The same options are not applicable for <b>admin.xx</b> accounts, which would need to reset by any machine in Corp Network or with assistance of <a href=`"mailto:corporate.support@sita.aero`">Corporate Helpdesk</a>.
+Your Corporate SSO password (The one you use to log into your workstation, also known as Active Directory) for <b>$SamAccountName</b> will expire in $Expirationdays $ddisplay (on $ExpirationDate).  This will disable your access to all SSO Services.<br /> <br />
+==> PLEASE CHANGE YOUR PASSWORD NOW : To reset your password from your PC press simultaneously the key "Ctrl" + "Alt" + "Delete" and then select the option "Change a password...". Alternatively visit the self-service password reset website. <br /><br />
+
 ============================================================================================= <br />
-SITA Password complexity rule reminder: <br />
+The Password complexity rule reminder: <br />
 Following our security rules the password has to meet a minimum of requirements : <br />
 Password history:  8 new passwords must be used before an old password can be reused. <br />
 Minimum password length: 8 characters. <br />
@@ -41,6 +41,6 @@ The password does not contain three or more characters from the user's account n
 =============================================================================================
 "@
   If ($null -ne $Mail) {
-    Send-MailMessage -To $mailto -From "corporate.support@sita.aero" -Subject "Password Expiration Notice" -Body $msg -BodyAsHtml -SmtpServer "mx.sita.aero"
+    Send-MailMessage -To $mailto -From "corporate.support@abc.com" -Subject "Password Expiration Notice" -Body $msg -BodyAsHtml -SmtpServer "mx.abc.com"
   }
 }
