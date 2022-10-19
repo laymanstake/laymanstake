@@ -49,7 +49,7 @@ function EmailAlert () {
 		}
 		Catch{
 			Throw $_.exception.message 
-		}# Action when all if and elseif conditions are false #>
+		}
 	}
 
 }
