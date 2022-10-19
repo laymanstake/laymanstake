@@ -1,5 +1,5 @@
 # Author : Nitish Kumar
-# To Automate SSL certificate Monitoring
+# Email Alert Function
 # version 1.0 | 19/10/2022
 
 # Function to send email
