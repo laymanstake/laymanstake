@@ -349,7 +349,7 @@ function New-Services {
             Write-Host "Copying files for $package Service ..." -ForegroundColor GREEN
             Copy-Item $filePath $windowsExporterInstallPath          
             $exeName = split-path $filePath -leaf
-            $ServicePath = """$windowsExporterInstallPath\$exeName"" --log.format logger:eventlog?name=windows_exporter --collectors.enabled cpu,cs,net,service,process,tcp,logical_disk,os,system,textfile,thermalzone --collector.textfile.directory C:\custom_metrics\"
+            $ServicePath = """$windowsExporterInstallPath\$exeName"" --log.format logger:eventlog?name=windows_exporter --collectors.enabled ""cpu,cs,net,service,process,tcp,logical_disk,os,system,textfile,thermalzone"" --collector.textfile.directory C:\custom_metrics\"
 
             $params = @{
                 Name = "Windows_exporter"
@@ -426,7 +426,7 @@ Write-Host "Download all the latest executables ...." -ForegroundColor GREEN
 #Get-Executables
 
 Write-Host "Setting up services ...." -ForegroundColor GREEN
-#New-Services
+New-Services -packages windows_exporter -override
 
 # Update Prometheus config to scrape current host metrics | Can be done for other hosts using similar syntax
 #$HostAddress = (Test-Connection -ComputerName $env:ComputerName -IPv4 -Count 1).Address.IPAddressToString
