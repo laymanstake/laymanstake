@@ -5,6 +5,7 @@
 # Download and Install Prometheus, Grafana and Windows Exporter
 # version 1.0 | 19/10/2022 Initial version
 # version 1.1 | 21/10/2022 Cleaned up the script to supress error messages, added override switch
+# version 1.2 | 21/10/2022 Added a crude way to update Prometheus configuration for adding nodes at mass scale
 
 Import-Module BitsTransfer
 
@@ -147,8 +148,7 @@ function New-Services {
             $prometheusServiceName = 'prometheus-service'
             $prometheusInstallPath = $servicePath + $package
             $prometheusServiceUsername = "NT SERVICE\$prometheusServiceName"
-            Write-Host "Configuring the $prometheusServiceName service..." -ForegroundColor GREEN
-            $prometheusInstallPath
+            Write-Host "Configuring the $prometheusServiceName service..." -ForegroundColor GREEN            
 
             nssm install $prometheusServiceName "`"$prometheusInstallPath\prometheus.exe`""
             nssm set $prometheusServiceName Start SERVICE_AUTO_START
@@ -369,8 +369,66 @@ function New-Services {
     }
 }
 
+# Function to configure Prometheus
+function Set-PrometheusConfig{
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true,mandatory=$true)]$jobName,
+        [Parameter(ValueFromPipeline = $true,mandatory=$true)]$prometheusInstallPath,
+        [Parameter(ValueFromPipeline = $true,mandatory=$true)]$targetAddress,
+        [Parameter(ValueFromPipeline = $true,mandatory=$true)]$targetPort,
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)]$scrape_interval="10s"
+    )
+
+    if((Test-Path $prometheusInstallPath\prometheus.yml) -AND (Test-Path $prometheusInstallPath\promtool.exe)){
+        $backupYaml = Get-Content $prometheusInstallPath\prometheus.yml
+        $backupYamlUpdated = $backupYaml
+
+        $foundAt = ($backupYaml | Select-String "Job_name: ""$jobName""" ).LineNumber
+
+        $i = $foundAt
+        if($foundAt){
+            do {
+                if(($backupYaml[$i] | Select-String "targets:" ).LineNumber){
+                    $backupYamlUpdated[$i] = $backupYamlUpdated[$i] -replace ']',",`"$targetAddress`:$targetPort`"]"
+                    Write-Host "Targets changed to " $backupYaml[$i]
+                }
+                $i++
+            } while (   $null -eq ($backupYaml[$i-1] | Select-String "targets:" ).LineNumber  )
+            
+            $backupYamlUpdated | Set-Content $prometheusInstallPath\prometheus.yml
+            $backupYaml | Set-Content $prometheusInstallPath\prometheus-copy.yml
+        }else {
+            add-content $prometheusInstallPath\prometheus.yml @"
+
+  - job_name: "$jobName"
+    scrape_interval: $scrape_interval
+    static_configs:
+      - targets: ["$targetAddress`:$targetPort"]
+"@
+        }
+
+        if((& $prometheusInstallPath\promtool.exe check config $prometheusInstallPath\prometheus.yml) -match "SUCCESS"){
+            Write-Host "Configuration updated successfully." -ForegroundColor Green
+            Write-Host "Restarting the prometheus-service service..." -ForegroundColor GREEN
+            Get-Service prometheus-service | Restart-Service
+        } else {
+            $backupYaml | Set-Content $prometheusInstallPath\prometheus.yml
+            Write-Host "Incorrect config value: Changes rolled back." -ForegroundColor Red
+        }
+
+    } else {
+        Write-Host "The given path $prometheusInstallPath doens't include either yml or promtool so we can not continue."
+    }
+}
+
 Write-Host "Download all the latest executables ...." -ForegroundColor GREEN
-Get-Executables
+#Get-Executables
 
 Write-Host "Setting up services ...." -ForegroundColor GREEN
-New-Services
+#New-Services
+
+# Update Prometheus config to scrape current host metrics | Can be done for other hosts using similar syntax
+#$HostAddress = (Test-Connection -ComputerName $env:ComputerName -IPv4 -Count 1).Address.IPAddressToString
+#$prometheusInstallPath = "C:\Program Files\Prometheus" # No easy way to get the path automatically as nssm outputing encording causes trouble
+#Set-PrometheusConfig -jobName "Windows_exporter1" -scrape_interval "5s" -targetAddress $HostAddress -targetPort 9182 -prometheusInstallPath $prometheusInstallPath
