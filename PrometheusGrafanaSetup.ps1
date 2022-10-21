@@ -370,7 +370,7 @@ function New-Services {
 }
 
 Write-Host "Download all the latest executables ...." -ForegroundColor GREEN
-#Get-Executables
+Get-Executables
 
 Write-Host "Setting up services ...." -ForegroundColor GREEN
-New-Services -Override
+New-Services
