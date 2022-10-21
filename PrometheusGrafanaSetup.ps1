@@ -426,7 +426,7 @@ Write-Host "Download all the latest executables ...." -ForegroundColor GREEN
 #Get-Executables
 
 Write-Host "Setting up services ...." -ForegroundColor GREEN
-New-Services -packages windows_exporter -override
+New-Services
 
 # Update Prometheus config to scrape current host metrics | Can be done for other hosts using similar syntax
 #$HostAddress = (Test-Connection -ComputerName $env:ComputerName -IPv4 -Count 1).Address.IPAddressToString
