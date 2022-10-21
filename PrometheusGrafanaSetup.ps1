@@ -3,7 +3,8 @@
 #Requires -Modules BitsTransfer
 # Author : Nitish Kumar
 # Download and Install Prometheus, Grafana and Windows Exporter
-# version 1.0 | 19/10/2022
+# version 1.0 | 19/10/2022 Initial version
+# version 1.1 | 21/10/2022 Cleaned up the script to supress error messages, added override switch
 
 Import-Module BitsTransfer
 
