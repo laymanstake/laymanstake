@@ -6,6 +6,7 @@
 # version 1.0 | 19/10/2022 Initial version
 # version 1.1 | 21/10/2022 Cleaned up the script to supress error messages, added override switch
 # version 1.2 | 21/10/2022 Added a crude way to update Prometheus configuration for adding nodes at mass scale
+# version 1.3 | 22/10/2022 Added remove services option. Sorted nssm output encoding issue to find install path
 
 # USAGES:
 # For getting the installers need to add the below line
@@ -127,21 +128,8 @@ function New-Services {
             if($Override.IsPresent){
                 Write-Host "Proceeding to wipe out $package. Close the script if you do not wish so" -ForegroundColor RED
                 Pause
-                if(Get-Service prometheus-service -ErrorAction SilentlyContinue){
-                    Stop-Service prometheus-service -ErrorAction SilentlyContinue
-                    Get-Process prometheus-service -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-                    Wait-Process -Name prometheus-service -ErrorAction SilentlyContinue        
-                    nssm remove prometheus-service confirm
-                }
-
-                # Create folder for Grafana in Installation path or cleanup old files
-                if (Test-Path -Path ($servicePath + $package)) {
-                    #Clean up the old files in the path before downloading new ones
-                    $OldFiles = (get-Childitem ($servicePath + $package) ).FullName | Select-String -Pattern $package
-                    $OldFiles | ForEach-Object {Remove-Item $_.Line -Recurse -Force}
-                } else {
-                    New-Item -Path $servicePath -Name $package -ItemType "directory" | Out-Null
-                }
+                Remove-Services -packages $package
+                New-Item -Path $servicePath -Name $package -ItemType "directory" | Out-Null                
             }
             
             # Extract Prometheus installer zip to Install path
@@ -233,21 +221,8 @@ function New-Services {
             if($Override.IsPresent){
                 Write-Host "Proceeding to wipe out $package. Close the script if you do not wish so" -ForegroundColor RED
                 Pause
-                if(Get-Service grafana-server -ErrorAction SilentlyContinue){
-                    Stop-Service grafana-server -ErrorAction SilentlyContinue
-                    Get-Process -Name grafana-server -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-                    Wait-Process -Name grafana-server -ErrorAction SilentlyContinue
-                    nssm remove grafana-server confirm
-                }
-
-                # Create folder for Grafana in Installation path or cleanup old files
-                if (Test-Path -Path ($servicePath + $package)) {
-                    #Clean up the old files in the path before downloading new ones
-                    $OldFiles = (get-Childitem ($servicePath + $package) ).FullName | Select-String -Pattern $package
-                    $OldFiles | ForEach-Object {Remove-Item $_.Line -Recurse -Force}
-                } else {
-                    New-Item -Path $servicePath -Name $package -ItemType "directory" | Out-Null
-                }
+                Remove-Services -packages $package
+                New-Item -Path $servicePath -Name $package -ItemType "directory" | Out-Null                
             }
 
             Write-Host "Setting up $package ..." -ForegroundColor GREEN
@@ -337,21 +312,8 @@ function New-Services {
             if($Override.IsPresent){
                 Write-Host "Proceeding to wipe out $package. Close the script if you do not wish so" -ForegroundColor RED
                 Pause
-                if(Get-Service Windows_exporter -ErrorAction SilentlyContinue){
-                    Stop-Service Windows_exporter -ErrorAction SilentlyContinue
-                    Get-Process windows_exporter* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-                    Wait-Process windows_exporter* -ErrorAction SilentlyContinue
-                    Remove-Service Windows_exporter -ErrorAction SilentlyContinue
-                }
-            }
-
-            # Create folder for Windows Exporter in Installation path or cleanup old files
-            if (Test-Path -Path ($servicePath + $package)) {
-                #Clean up the old files in the path before downloading new ones
-                $OldFiles = (get-Childitem ($servicePath + $package) ).FullName | Select-String -Pattern $package
-                $OldFiles | ForEach-Object {Remove-Item $_.Line -Recurse -Force}
-            } else {
-                New-Item -Path $servicePath -Name $package -ItemType "directory" | Out-Null
+                Remove-Services -packages $package
+                New-Item -Path $servicePath -Name $package -ItemType "directory" | Out-Null                
             }
 
             Write-Host "Setting up $package ..." -ForegroundColor GREEN
@@ -386,12 +348,17 @@ function New-Services {
 function Set-PrometheusConfig{
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true,mandatory=$true)]$jobName,
-        [Parameter(ValueFromPipeline = $true,mandatory=$true)]$prometheusInstallPath,
+        [Parameter(ValueFromPipeline = $true,mandatory=$true)]$jobName,        
         [Parameter(ValueFromPipeline = $true,mandatory=$true)]$targetAddress,
         [Parameter(ValueFromPipeline = $true,mandatory=$true)]$targetPort,
         [Parameter(ValueFromPipeline = $true,mandatory=$false)]$scrape_interval="10s"
     )
+
+    # Encoding of nssm output causes issue, so forcing to unicode temporarily
+    $originalEncoding = [Console]::OutputEncoding
+    [Console]::OutputEncoding = [System.Text.Encoding]::Unicode
+    $prometheusInstallPath =(nssm get prometheus-service AppDirectory) # This gives error msg due to NT Service in config, can be ignored
+    [Console]::OutputEncoding = $originalEncoding
 
     if((Test-Path $prometheusInstallPath\prometheus.yml) -AND (Test-Path $prometheusInstallPath\promtool.exe)){
         $backupYaml = Get-Content $prometheusInstallPath\prometheus.yml
@@ -435,13 +402,122 @@ function Set-PrometheusConfig{
     }
 }
 
-Write-Host "Download all the latest executables ...." -ForegroundColor GREEN
-Get-Executables
+function Remove-Services {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true,mandatory=$true)]
+        [ValidateSet('Prometheus','Grafana','Windows_exporter','nssm')]
+        [String[]]$packages        
+    )
 
-Write-Host "Setting up services ...." -ForegroundColor GREEN
-New-Services
+    ForEach($package in $packages){
+        # Remove nssm from system
+        if($package -match "nssm"){
+            
+            $nssmDependents = (Get-CimInstance Win32_Service | Where-Object{$_.PathName -like "*nssm.exe*"} | Select-Object Name, DisplayName, StartMode, State)            
+            
+            if($nssmDependents.count -ne 0){
+                Write-Host "There are $($nssmDependents.Count) depedent service(s): $($nssmDependents.name -join ","). Remove them first..." -ForegroundColor Red
+            } else {
+                $servicePath = Split-Path (where.exe nssm)
+                try{
+                    Get-Process nssm -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+                    Remove-Item $servicePath -Recurse -Force
+                    if((Split-Path ($servicePath) -Parent).EndsWith("nssm")){
+                        Remove-Item (Split-Path ($servicePath) -Parent) -Recurse -Force
+                    }
+                    If ((Read-Host 'Do you want to update system path as well (y/n) ') -eq 'Y') {
+                        $OldPath = (Get-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH).path                        
+                        Write-Host "Old Path is: `n$OldPath"
+                        $NewPath = ($OldPath -split ";" | where-object{$_ -ne "$servicePath" -AND $_ -ne ""}) -join ";"
+                        Set-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH -Value "$NewPath"
+                        Write-Host "Updated new Path is: `n$NewPath"
+                    }
+                    Write-host "$package has been removed from the system ..." -ForegroundColor GREEN
+                } catch {
+                    Write-Host "Unable to stop nssm process.. can't remove nssm."
+                }
+            }            
+        }
+
+        # Remove Grafana from system
+        if($package -match "Grafana"){
+            if(Get-Service grafana-server -ErrorAction SilentlyContinue){
+                # Encoding of nssm output causes issue, so forcing to unicode temporarily
+                $originalEncoding = [Console]::OutputEncoding
+                [Console]::OutputEncoding = [System.Text.Encoding]::Unicode
+                $GrafanaInstallPath =(nssm get grafana-server AppDirectory) # This gives error msg due to NT Service in config, can be ignored
+                [Console]::OutputEncoding = $originalEncoding
+
+                Stop-Service grafana-server -ErrorAction SilentlyContinue
+                Get-Process grafana-server -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+                Wait-Process -Name grafana-server -ErrorAction SilentlyContinue        
+                nssm remove grafana-server confirm
+                
+                $GrafanaInstallPath = Split-Path ($GrafanaInstallPath) -Parent
+                
+                If ((Read-Host "Do you want to delete $GrafanaInstallPath as well (y/n) ") -ieq 'Y') {
+                    Remove-Item $GrafanaInstallPath -Recurse -Force
+                    Write-Host "$GrafanaInstallPath deleted." -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host "Count not find $package service in system ... " -ForegroundColor Green
+            } 
+        }
+
+        # Remove Prometheus from the system
+        if($package -match "Prometheus"){
+            if(Get-Service prometheus-service -ErrorAction SilentlyContinue){
+                # Encoding of nssm output causes issue, so forcing to unicode temporarily
+                $originalEncoding = [Console]::OutputEncoding
+                [Console]::OutputEncoding = [System.Text.Encoding]::Unicode
+                $prometheusInstallPath =(nssm get prometheus-service AppDirectory) # This gives error msg due to NT Service in config, can be ignored
+                [Console]::OutputEncoding = $originalEncoding
+
+                Stop-Service prometheus-service -ErrorAction SilentlyContinue
+                Get-Process prometheus-service -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+                Wait-Process -Name prometheus-service -ErrorAction SilentlyContinue        
+                nssm remove prometheus-service confirm
+                If ((Read-Host "Do you want to delete $prometheusInstallPath as well (y/n) ") -ieq 'Y') {
+                    Remove-Item $prometheusInstallPath -Recurse -Force
+                    Write-Host "$prometheusInstallPath deleted." -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host "Count not find $package service in system ... " -ForegroundColor Green
+            } 
+        }
+
+        # Remove Windows Exporter from the system
+        if($package -match "Windows_Exporter"){
+            if(Get-Service Windows_exporter -ErrorAction SilentlyContinue){
+                $WinExporterInstallPath = split-path ((Get-CimInstance Win32_Service | Where-Object {$_.Name -eq "Windows_exporter"}).PathName -split "--")[0]
+
+                Stop-Service Windows_exporter -ErrorAction SilentlyContinue
+                Get-Process windows_exporter* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+                Wait-Process windows_exporter* -ErrorAction SilentlyContinue
+                Remove-Service Windows_exporter -ErrorAction SilentlyContinue
+
+                If ((Read-Host "Do you want to delete $WinExporterInstallPath as well (y/n) ") -ieq 'Y') {
+                    Remove-Item $WinExporterInstallPath -Recurse -Force
+                    Write-Host "$WinExporterInstallPath deleted." -ForegroundColor Yellow
+                }
+                Write-host "$package has been removed from the system ..." -ForegroundColor GREEN
+                
+            } else {
+                Write-Host "Count not find $package service in system ... " -ForegroundColor Green
+            }
+        }
+    }
+}
+
+#Write-Host "Download all the latest executables ...." -ForegroundColor GREEN
+#Get-Executables
+
+#Write-Host "Setting up services ...." -ForegroundColor GREEN
+#New-Services
+
+#Remove-Services -packages Grafana, Prometheus, nssm
 
 # Update Prometheus config to scrape current host metrics | Can be done for other hosts using similar syntax
 #$HostAddress = (Test-Connection -ComputerName $env:ComputerName -IPv4 -Count 1).Address.IPAddressToString
-#$prometheusInstallPath = "C:\Program Files\Prometheus" # No easy way to get the path automatically as nssm outputing encording causes trouble
-#Set-PrometheusConfig -jobName "Windows_exporter1" -scrape_interval "5s" -targetAddress $HostAddress -targetPort 9182 -prometheusInstallPath $prometheusInstallPath
+#Set-PrometheusConfig -jobName "Windows_exporter1" -scrape_interval "5s" -targetAddress $HostAddress -targetPort 9182
