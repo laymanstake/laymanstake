@@ -7,6 +7,19 @@
 # version 1.1 | 21/10/2022 Cleaned up the script to supress error messages, added override switch
 # version 1.2 | 21/10/2022 Added a crude way to update Prometheus configuration for adding nodes at mass scale
 
+# USAGES:
+# For getting the installers need to add the below line
+# Get-Executables # By default it downloads all four packages
+# Get-Executables -packages Prometheus, Grafana # In case you want to download select packages
+
+# For services setup, need to add the lines like below
+# New-Services # By default, it would assume that all 4 packages need to be installed in c:\program files\<package_name> & executables are at c:\%username%\downloads\Executables
+# New-Services -Override # Adding Override switch would remove existing installations & install fresh except nssm
+# New-Services - packages Grafana, Windows_exporter # this would install only two of the packages given
+
+# For prometheus config, need to add the lines like below, same way can be extended to many nodes using csv file or table in a loop
+# Set-PrometheusConfig -jobName "Windows_exporter" -scrape_interval "5s" -targetAddress <IPAddress or FQDN> -targetPort <port> -prometheusInstallPath <Installation folder> # Except Scrape interview, rest all parameters are mandatory
+
 Import-Module BitsTransfer
 
 # Function to download excutables for Prometheus, Grafana, Windows_exporter and nssm
@@ -423,7 +436,7 @@ function Set-PrometheusConfig{
 }
 
 Write-Host "Download all the latest executables ...." -ForegroundColor GREEN
-#Get-Executables
+Get-Executables
 
 Write-Host "Setting up services ...." -ForegroundColor GREEN
 New-Services
