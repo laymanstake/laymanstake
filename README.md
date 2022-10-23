@@ -15,6 +15,11 @@
 - 💞️ I’m looking to collaborate on PowerShell, Devops. </br>
 - :mailbox:How to reach me: <a href="https://www.linkedin.com/in/kumarnitish/"><img src="https://img.shields.io/badge/-Nitish Kumar-blue?style=flat&logo=Linkedin&logoColor=white" alt="LinkedIn Badge"/>  </a> </br>
 
+
+<!-- Markdown -->
+
+![Jokes Card](https://readme-jokes.vercel.app/api)
+
 ---
 
 <div id="badges">
