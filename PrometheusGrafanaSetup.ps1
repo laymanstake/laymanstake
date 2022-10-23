@@ -7,6 +7,7 @@
 # version 1.1 | 21/10/2022 Cleaned up the script to supress error messages, added override switch
 # version 1.2 | 21/10/2022 Added a crude way to update Prometheus configuration for adding nodes at mass scale
 # version 1.3 | 22/10/2022 Added remove services option. Sorted nssm output encoding issue to find install path
+# version 1.4 | 23/10/2022 Ready for mass deployment, sample code parts added
 
 # USAGES:
 # For getting the installers need to add the below line
@@ -20,6 +21,8 @@
 
 # For prometheus config, need to add the lines like below, same way can be extended to many nodes using csv file or table in a loop
 # Set-PrometheusConfig -jobName "Windows_exporter" -scrape_interval "5s" -targetAddress <IPAddress or FQDN> -targetPort <port> -prometheusInstallPath <Installation folder> # Except Scrape interview, rest all parameters are mandatory
+
+# REFER TO COMMENTED PARTS AT END OF SCRIPT FOR MASS DEPLOYMENT CASES
 
 Import-Module BitsTransfer
 
@@ -44,7 +47,7 @@ function Get-Executables {
     if ($packages -match 'Prometheus'){
         $url = Invoke-RestMethod -uri  https://api.github.com/repos/prometheus/prometheus/releases/latest | Select-Object -ExpandProperty assets | Where-Object{$_.Name.EndsWith("windows-amd64.zip")} | select -expand browser_download_url
         $file = Split-Path $url -Leaf
-        Write-Host "Downloading $file ..." -ForegroundColor GREEN
+        Write-Host "Downloading $file to $($executableDownloadPath)Executables..." -ForegroundColor GREEN
         Start-BitsTransfer -Source $url -Destination $executableDownloadPath"Executables\"$file
     }
     
@@ -52,20 +55,20 @@ function Get-Executables {
         $grafanaVersion = (Split-Path (Invoke-RestMethod -uri  https://api.github.com/repos/grafana/grafana/releases/latest).html_url -Leaf ).Substring(1)
         $file = "grafana-" + $grafanaVersion + ".windows-amd64.zip"
         $url = "https://dl.grafana.com/oss/release/" + $file
-        Write-Host "Downloading $file ..." -ForegroundColor GREEN
+        Write-Host "Downloading $file to $($executableDownloadPath)Executables..." -ForegroundColor GREEN
         Start-BitsTransfer -Source $url -Destination $executableDownloadPath"Executables\"$file
     }
 
     if ($packages -match 'Windows_exporter'){
         $url = Invoke-RestMethod -uri  https://api.github.com/repos/prometheus-community/windows_exporter/releases/latest | Select-Object -ExpandProperty assets | Where-Object{$_.Name.EndsWith("amd64.exe")} | select -expand browser_download_url
         $file = Split-Path $url -Leaf
-        Write-Host "Downloading $file ..." -ForegroundColor GREEN
+        Write-Host "Downloading $file to $($executableDownloadPath)Executables..." -ForegroundColor GREEN
         Start-BitsTransfer -Source $url -Destination $executableDownloadPath"Executables\"$file
     }
 
     if ($packages -match 'nssm'){
         $file = Split-Path("https://nssm.cc/release/nssm-2.24.zip") -Leaf
-        Write-Host "Downloading $file ..." -ForegroundColor GREEN
+        Write-Host "Downloading $file to $($executableDownloadPath)Executables..." -ForegroundColor GREEN
         Start-BitsTransfer -Source https://nssm.cc/release/nssm-2.24.zip -Destination $executableDownloadPath"Executables\"$file        
     }    
 }
@@ -78,59 +81,66 @@ function New-Services {
         [ValidateSet('Prometheus','Grafana','Windows_exporter','nssm')]
         [String[]]$packages = @('nssm','Prometheus','Grafana','Windows_exporter'),
         [Parameter(ValueFromPipeline = $true,mandatory=$false)]$servicePath = "$env:programfiles\",
-        [Parameter(ValueFromPipeline = $true,mandatory=$false)][switch]$Override,
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)]$Override,
         [Parameter(ValueFromPipeline = $true,mandatory=$false)]$executableDownloadPath = "$env:userprofile\downloads\Executables"
     )
+    $packages
+    $servicePath
+    $Override
+    $executableDownloadPath
 
     if($Override.IsPresent){
         Write-Host "Proceeding to wipe out earlier installations of $($packages -join ","). Close the script if you do not wish so" -ForegroundColor RED
         Pause
     }
+    
+    Write-Host "Checking if nssm is setup ..." -ForegroundColor Yellow
+    $nssmExists = (where.exe nssm)
+    if ($nssmExists) {Write-Host "nssm found to be installed at $nssmExists ..."} else {Write-Host "nssm not installed yet ..."}
 
-    ForEach($package in $packages){
+    ForEach($package in $packages){      
         # Install nssm which would help creating services for Prometheus and Grafana
-        if ($package -match 'nssm' -AND $Override.IsPresent){
-            # Create folder for nssm in Installation path or cleanup old files
-            if (Test-Path -Path ($servicePath + $package)) {
-                Write-Host "Bad idea to wipe out $package as there are services depending on this, would skip ..." -ForegroundColor RED                
-            } else {
-                New-Item -Path $servicePath -Name $package -ItemType "directory" | Out-Null            
+        if ($package -match 'nssm' -AND !($nssmExists)){
+            # Create folder for nssm in Installation path
+            New-Item -Path $servicePath -Name $package -ItemType "directory" | Out-Null            
 
-                Write-Host "Setting up $package ..."  -ForegroundColor GREEN
+            Write-Host "Setting up $package ..."  -ForegroundColor GREEN
 
-                # Extract nssm zip to Install path
-                $filePath = (get-childitem $executableDownloadPath | Where-Object {$_.Name.StartsWith($package.ToLower())}).versioninfo.filename
-                $shell = New-Object -ComObject Shell.Application
-                $zipFile = $shell.NameSpace($filePath + "\" + ((get-childitem $executableDownloadPath | Where-Object {$_.Name.StartsWith($package)}).Name -replace ".zip"))
-                $destinationFolder = $shell.NameSpace($servicePath + $package)
+            # Extract nssm zip to Install path
+            $filePath = (get-childitem $executableDownloadPath | Where-Object {$_.Name.StartsWith($package.ToLower())}).versioninfo.filename
+        
+            $shell = New-Object -ComObject Shell.Application
+            $zipFile = $shell.NameSpace($filePath + "\" + ((get-childitem $executableDownloadPath | Where-Object {$_.Name.StartsWith($package)}).Name -replace ".zip"))
+            $destinationFolder = $shell.NameSpace($servicePath + $package)
 
-                $copyFlags = 0x00
-                $copyFlags += 0x04 # Hide progress dialogs
-                $copyFlags += 0x10 # Overwrite existing files
+            $copyFlags = 0x00
+            $copyFlags += 0x04 # Hide progress dialogs
+            $copyFlags += 0x10 # Overwrite existing files
 
-                Write-Host "Copying files for $package ..." -ForegroundColor GREEN
-                $destinationFolder.CopyHere($zipFile.Items(), $copyFlags)
+            Write-Host "Copying files for $package ..." -ForegroundColor GREEN
+            $destinationFolder.CopyHere($zipFile.Items(), $copyFlags)
+            
+            # Add nssm to system path permanently            
+            $oldpath = (Get-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH).path
+            $newpath = $oldpath + ";" + $servicePath + $package + "\win64"
+            Set-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH -Value $newPath
+            
+            # Refresh the path variable for current session 
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")                             
 
-                # Add nssm to system path permanently
-                if (!(where.exe nssm)){
-                    $oldpath = (Get-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH).path
-                    $newpath = $oldpath + ";" + $servicePath + $package + "\win64"
-                    Set-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH -Value $newPath
-                    
-                    # Refresh the path variable for current session 
-                    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")                 
-                }
-            }
+            $nssmExists = (where.exe nssm)
+            if ($nssmExists) {Write-Host "nssm is now installed at $nssmExists ..."} else {Write-Host "nssm not installed yet ..."}
         }
-
+                
         # Install Prometheus as Service
-        if ($package -match 'prometheus' -AND (where.exe nssm) -AND $Override.IsPresent){
-            if($Override.IsPresent){
+        if ($package -match 'prometheus' -AND ($nssmExists)){
+            if($Override.IsPresent -AND (Get-Service prometheus-service)){
                 Write-Host "Proceeding to wipe out $package. Close the script if you do not wish so" -ForegroundColor RED
                 Pause
-                Remove-Services -packages $package
-                New-Item -Path $servicePath -Name $package -ItemType "directory" | Out-Null                
+                Remove-Services -packages $package                
             }
+
+            New-Item -Path $servicePath -Name $package -ItemType "directory" | Out-Null
             
             # Extract Prometheus installer zip to Install path
             $filePath = (get-childitem $executableDownloadPath | Where-Object {$_.Name.StartsWith($package.ToLower())}).versioninfo.filename            
@@ -142,7 +152,7 @@ function New-Services {
             $copyFlags += 0x04 # Hide progress dialogs
             $copyFlags += 0x10 # Overwrite existing files
 
-            Write-Host "Copying files for $package Service ..." -ForegroundColor GREEN
+            Write-Host "Copying files for $package Service from $filePath ..." -ForegroundColor GREEN
             $destinationFolder.CopyHere($zipFile.Items(), $copyFlags)
 
             Write-Host "Setting up $package ..." -ForegroundColor GREEN
@@ -217,7 +227,7 @@ function New-Services {
         }
 
         # Install Grafana as Service
-        if ($package -match 'Grafana' -AND (where.exe nssm) -AND $Override.IsPresent){
+        if ($package -match 'Grafana' -AND ($nssmExists)){
             if($Override.IsPresent){
                 Write-Host "Proceeding to wipe out $package. Close the script if you do not wish so" -ForegroundColor RED
                 Pause
@@ -243,7 +253,7 @@ function New-Services {
             $copyFlags += 0x04 # Hide progress dialogs
             $copyFlags += 0x10 # Overwrite existing files
             
-            Write-Host "Copying data for the $($grafanaServiceName) service, may take some time..." -ForegroundColor YELLOW
+            Write-Host "Copying data for the $($grafanaServiceName) service from $filePath, may take some time..." -ForegroundColor YELLOW
             $destinationFolder.CopyHere($zipFile.Items(), $copyFlags)
             
             $confPath = $servicePath + $package
@@ -306,9 +316,9 @@ function New-Services {
                 $suppressMsg = New-NetFirewallRule -DisplayName 'Grafana Server' -Profile @('Public','Private','Domain') -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3000 -ErrorAction SilentlyContinue -ErrorVariable MyErrorVar
             }
         }
-        
+
         # Install Windows Exporter as Service
-        if ($package -match 'windows_exporter' -AND $Override.IsPresent){
+        if ($package -match 'windows_exporter'){
             if($Override.IsPresent){
                 Write-Host "Proceeding to wipe out $package. Close the script if you do not wish so" -ForegroundColor RED
                 Pause
@@ -321,7 +331,7 @@ function New-Services {
             $filePath = (get-childitem $executableDownloadPath | Where-Object {$_.Name.StartsWith($package.ToLower())}).versioninfo.filename
             $windowsExporterInstallPath = $servicePath + $package
             
-            Write-Host "Copying files for $package Service ..." -ForegroundColor GREEN
+            Write-Host "Copying files for $package Service from $filePath ..." -ForegroundColor GREEN
             Copy-Item $filePath $windowsExporterInstallPath          
             $exeName = split-path $filePath -leaf
             $ServicePath = """$windowsExporterInstallPath\$exeName"" --log.format logger:eventlog?name=windows_exporter --collectors.enabled ""cpu,cs,net,service,process,tcp,logical_disk,os,system,textfile,thermalzone"" --collector.textfile.directory C:\custom_metrics\"
@@ -413,29 +423,33 @@ function Remove-Services {
     ForEach($package in $packages){
         # Remove nssm from system
         if($package -match "nssm"){
-            
+            $nssmExists = (where.exe nssm)
+            if ($nssmExists) {Write-Host "nssm found to be installed at $nssmExists ..."} else {Write-Host "nssm not installed yet ..."}
+
             $nssmDependents = (Get-CimInstance Win32_Service | Where-Object{$_.PathName -like "*nssm.exe*"} | Select-Object Name, DisplayName, StartMode, State)            
             
             if($nssmDependents.count -ne 0){
                 Write-Host "There are $($nssmDependents.Count) depedent service(s): $($nssmDependents.name -join ","). Remove them first..." -ForegroundColor Red
             } else {
-                $servicePath = Split-Path (where.exe nssm)
-                try{
-                    Get-Process nssm -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-                    Remove-Item $servicePath -Recurse -Force
-                    if((Split-Path ($servicePath) -Parent).EndsWith("nssm")){
-                        Remove-Item (Split-Path ($servicePath) -Parent) -Recurse -Force
+                if($nssmExists){
+                    $servicePath = Split-Path $nssmExists
+                    try{
+                        Get-Process nssm -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+                        Remove-Item $servicePath -Recurse -Force
+                        if((Split-Path ($servicePath) -Parent).EndsWith("nssm")){
+                            Remove-Item (Split-Path ($servicePath) -Parent) -Recurse -Force
+                        }
+                        If ((Read-Host 'Do you want to update system path as well (y/n) ') -eq 'Y') {
+                            $OldPath = (Get-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH).path                        
+                            Write-Host "Old Path is: `n$OldPath"
+                            $NewPath = ($OldPath -split ";" | where-object{$_ -ne "$servicePath" -AND $_ -ne ""}) -join ";"
+                            Set-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH -Value "$NewPath"
+                            Write-Host "Updated new Path is: `n$NewPath"
+                        }
+                        Write-host "$package has been removed from the system ..." -ForegroundColor GREEN
+                    } catch {
+                        Write-Host "Unable to stop nssm process.. can't remove nssm."
                     }
-                    If ((Read-Host 'Do you want to update system path as well (y/n) ') -eq 'Y') {
-                        $OldPath = (Get-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH).path                        
-                        Write-Host "Old Path is: `n$OldPath"
-                        $NewPath = ($OldPath -split ";" | where-object{$_ -ne "$servicePath" -AND $_ -ne ""}) -join ";"
-                        Set-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH -Value "$NewPath"
-                        Write-Host "Updated new Path is: `n$NewPath"
-                    }
-                    Write-host "$package has been removed from the system ..." -ForegroundColor GREEN
-                } catch {
-                    Write-Host "Unable to stop nssm process.. can't remove nssm."
                 }
             }            
         }
@@ -511,13 +525,42 @@ function Remove-Services {
 }
 
 #Write-Host "Download all the latest executables ...." -ForegroundColor GREEN
-#Get-Executables
+#Get-Executables nssm
 
+# Sample code if you want to download the packages on remote machine
+#$credential = Get-Credential
+#Invoke-Command -ComputerName $env:COMPUTERNAME -ScriptBlock ${function:get-executables} -Credential $credential -ArgumentList @("nssm","prometheus"), "$env:userprofile\"
+
+# Sample code if you want to install the packages on remote machine
+#$param = @{
+#    packages = @("nssm", "prometheus")
+#    servicePath = "c:\down\"
+#    Override = $true
+#    executableDownloadPath = "$env:userprofile\Executables"
+#}
+
+#$ScriptBlock = [scriptblock]::Create("${function:New-Services}")
+#Invoke-Command -ComputerName $env:COMPUTERNAME -ScriptBlock $ScriptBlock -Credential $credential -ArgumentList ($param.packages, $param.servicePath, $param.Override,$param.executableDownloadPath)
+
+# Sample code if you want to install the packages on local machine
 #Write-Host "Setting up services ...." -ForegroundColor GREEN
 #New-Services
 
-#Remove-Services -packages Grafana, Prometheus, nssm
+# Sample code if you want to download the packages on remote machine
+#$credential = Get-Credential
+#Invoke-Command -ComputerName $env:COMPUTERNAME -ScriptBlock ${function:get-executables} -Credential $credential -ArgumentList @("nssm","prometheus"), "$env:userprofile\"
+
+# Sample code if you want to remove the packages from remote machine
+#$param = @{
+#    packages = @("nssm", "prometheus")
+#}
+
+#$ScriptBlock = [scriptblock]::Create("${function:Remove-Services}")
+#Invoke-Command -ComputerName $env:COMPUTERNAME -ScriptBlock $ScriptBlock -Credential $credential -ArgumentList ($param.packages)
+
+# Sample code if you want to remove the service(s) from local machine
+#Remove-Services -packages nssm, Prometheus
 
 # Update Prometheus config to scrape current host metrics | Can be done for other hosts using similar syntax
 #$HostAddress = (Test-Connection -ComputerName $env:ComputerName -IPv4 -Count 1).Address.IPAddressToString
-#Set-PrometheusConfig -jobName "Windows_exporter1" -scrape_interval "5s" -targetAddress $HostAddress -targetPort 9182
+#Set-PrometheusConfig -jobName "Windows_exporter" -scrape_interval "5s" -targetAddress $HostAddress -targetPort 9182
