@@ -1,9 +1,11 @@
 <div id="header" align="center">
-  <img src="https://media-exp1.licdn.com/dms/image/C5616AQEjMyzckGMKeA/profile-displaybackgroundimage-shrink_350_1400/0/1660402669015?e=1672272000&v=beta&t=zXxn7mu86ydE9r5G38LO8TYQIoHpIxScXkgc2nxgTaA"/>
+<img src="https://media-exp1.licdn.com/dms/image/C5616AQEjMyzckGMKeA/profile-displaybackgroundimage-shrink_350_1400/0/1660402669015?e=1672272000&v=beta&t=zXxn7mu86ydE9r5G38LO8TYQIoHpIxScXkgc2nxgTaA"/>
+
 </div>
 <br></br>
 <div align="left">
-  <img src="https://media-exp1.licdn.com/dms/image/C4E03AQGpLeXArBBtew/profile-displayphoto-shrink_800_800/0/1660573768954?e=2147483647&v=beta&t=q5rr1i_anjWFG8F7J4VX1C5YuxZy7eKNCHsF5DdLKKg"  width="160" height="160"/>
+<a href="url"><img src="https://nitishkumar.files.wordpress.com/2022/10/cropped-img_20220723_094547-removebg-preview.png" height="auto" width="160" style="border-radius:50%" overflow: "hidden"></a>
+
 </div>
 :man_technologist: About Me : 
 
@@ -11,7 +13,7 @@
 
 - 👋 Hi, I’m Nitish Kumar @laymanstake. Working in Windows Infrastructure since almost two decades now. <br>
 - 👀 I’m interested in  O365/ Azure/ System Administration and PowerShell <br>
-- 🌱 I’m currently learning Powershell, DevOps, Python <br>
+- 🌱 I’m currently learning Powershell, DevOps, Python and enjoying Grafana, Prometheus <br>
 - 💞️ I’m looking to collaborate on PowerShell, Devops. </br>
 - :mailbox:How to reach me: <a href="https://www.linkedin.com/in/kumarnitish/"><img src="https://img.shields.io/badge/-Nitish Kumar-blue?style=flat&logo=Linkedin&logoColor=white" alt="LinkedIn Badge"/>  </a> </br>
 
