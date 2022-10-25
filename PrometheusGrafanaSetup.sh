@@ -3,6 +3,7 @@
 # Author : Nitish Kumar
 # Download and Install Prometheus, Grafana and Node Exporter
 # version 1.0 | 24/10/2022 Initial version
+# version 1.1 | 25/10/2022 Removed sudo from inside the script, added remove-services function
 
 PROMETHEUS_VERSION=$(curl -s https://raw.githubusercontent.com/prometheus/prometheus/master/VERSION)
 NODE_VERSION=$(curl -s https://raw.githubusercontent.com/prometheus/node_exporter/master/VERSION)
