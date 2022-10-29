@@ -101,8 +101,8 @@ Install-Executables() {
             cat >/etc/systemd/system/prometheus.service <<EOL
 [Unit]
 Description=Prometheus
-Wants=network-online. Target
-After=network-online. Target
+Wants=network-online.Target
+After=network-online.Target
 [Service]
 User=prometheus
 Group=prometheus
@@ -278,8 +278,8 @@ Remove-Services() {
 }
 
 # Ready up executables
-#Get-Executables prometheus grafana node_exporter
-#Install-Executables prometheus grafana node_exporter
+Get-Executables prometheus grafana node_exporter
+Install-Executables prometheus grafana node_exporter
 #Remove-Services node_exporter grafana
 
 # You would still need to add config in /etc/prometheus/prometheus.yml before you can see data from the node
