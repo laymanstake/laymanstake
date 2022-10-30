@@ -101,8 +101,9 @@ Install-Executables() {
             cat >/etc/systemd/system/prometheus.service <<EOL
 [Unit]
 Description=Prometheus
-Wants=network-online.Target
-After=network-online.Target
+Wants=network-online.target
+After=network-online.target
+
 [Service]
 User=prometheus
 Group=prometheus
@@ -112,6 +113,7 @@ ExecStart=/usr/local/bin/prometheus \
           --storage.tsdb.path /var/lib/prometheus/ \
           --web.console.templates=/etc/prometheus/consoles \
           --web.console.libraries=/etc/prometheus/console_libraries
+          
 EOL
 
             # setup service
