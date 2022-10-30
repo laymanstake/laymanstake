@@ -113,7 +113,7 @@ ExecStart=/usr/local/bin/prometheus \
           --storage.tsdb.path /var/lib/prometheus/ \
           --web.console.templates=/etc/prometheus/consoles \
           --web.console.libraries=/etc/prometheus/console_libraries
-          
+
 EOL
 
             # setup service
@@ -268,7 +268,7 @@ Remove-Services() {
         yum remove grafana -y -q
         
         # Removing Grafana Dashboards and DB
-        echo "${red} Removing Grafana related firewall rules ... ${reset}"
+        echo "${red} Removing Grafana related files (db, rules, plugins etc) ... ${reset}"
         rm -rf /var/lib/grafana
 
         # Remove firewall rule created
