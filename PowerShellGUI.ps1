@@ -1,10 +1,12 @@
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Windows.Forms.DataVisualization
 function New-SplashFromImage{
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true,mandatory=$true)][String]$imageFilePath
     )
 
-    [void] [System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
+    Add-Type -AssemblyName System.Windows.Forms
     [System.Windows.Forms.Application]::EnableVisualStyles() # To enable system theme
     
     $img = [System.Drawing.Image]::Fromfile($imageFilePath)    
@@ -31,7 +33,7 @@ function New-OkCancelBox{
         [Parameter(ValueFromPipeline = $true,mandatory=$true)][String]$message,
         [Parameter(ValueFromPipeline = $true,mandatory=$false)][ValidateSet('Hand','Question','Exclamation','Asterisk','Stop','Error','Warning','Information')][String]$icon = "Information"
     )
-    [void] [System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
+    Add-Type -AssemblyName System.Windows.Forms
 
     $result = [System.Windows.Forms.MessageBox]::Show($message, $title, [System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::$icon)
     return $result    
@@ -43,7 +45,7 @@ function New-FileDialog {
         [Parameter(ValueFromPipeline = $true,mandatory=$false)][ValidateScript({if( -Not($_ | Test-Path)){ throw "incorrect start Directory" } else {return $true}})][String]$startDirectory,
         [Parameter(ValueFromPipeline = $true,mandatory=$false)][String[]]$filter = "All Files (*.*)|*.*"
     )
-    [void] [System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
+    Add-Type -AssemblyName System.Windows.Forms
 
     $fileBrowser = New-Object System.Windows.Forms.OpenFileDialog 
     
@@ -72,7 +74,7 @@ function New-BaloonNotification {
         [Parameter(ValueFromPipeline = $true,mandatory=$false)][ValidateSet('None','Info','Warning','Error')][String]$icon = "Info",
         [Parameter(ValueFromPipeline = $true,mandatory=$false)][scriptblock]$Script
     )
-    [void] [System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
+    Add-Type -AssemblyName System.Windows.Forms
 
     if ($null -eq $script:balloonToolTip){  $script:balloonToolTip = New-Object System.Windows.Forms.NotifyIcon }
 
@@ -210,4 +212,102 @@ function New-ToastNotification {
     [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
 }
 #Invoke-Command -ComputerName 192.168.1.22 -ScriptBlock ${function:New-ToastNotification} -Credential (Get-Credential)
-New-ToastNotification -title "This is custom notification" -message "One liner custom message. Some extra long, super long message " -logo "" -extraImage "C:\temp\extra.png" #-heroImage "C:\temp\hero.png" 
+#New-ToastNotification -title "This is custom notification" -message "One liner custom message. Some extra long, super long message " -logo "" -extraImage "C:\temp\extra.png" #-heroImage "C:\temp\hero.png" 
+
+# Funtion to create a save dialog
+function New-SaveDialog {
+    [cmdletBinding()]
+    param(
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)][ValidateScript({if( -Not($_ | Test-Path)){ throw "incorrect start Directory" } else {return $true}})][String]$startDirectory = [Environment]::GetFolderPath('MyDocuments'),
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)][String]$filter = "*.png"
+    )
+    
+    Add-Type -AssemblyName System.Windows.Forms
+    $SaveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
+    
+    if($startDirectory){    $SaveFileDialog.InitialDirectory = $startDirectory } 
+    else{   $SaveFileDialog.InitialDirectory = [Environment]::GetFolderPath('MyDocuments') }    
+    
+    if ($filter -ne "*.png"){
+        $SaveFileDialog.Filter = ($filter | Where-Object{$_ -match "\*\..*"} | ForEach-Object{"$_ files |$_"}) -join "|"
+    } else {
+        $SaveFileDialog.Filter = ($filter | Where-Object{$_ -match "\*\..*"} | ForEach-Object{"$_ files |$_"}) -join "|"
+        #$SaveFileDialog.DefaultExt='png'
+    }
+    
+    $show = $SaveFileDialog.ShowDialog()
+    
+    If ($show -eq 'OK') {  
+        $file = [pscustomobject]@{  FileName = $SaveFileDialog.FileName;Extension = $SaveFileDialog.FileName -replace '.*\.(.*)','$1'} 
+    }
+    
+    Return $file
+}
+
+# Function to create Chart
+function New-Chart {
+    [cmdletBinding()]
+    param(
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)]$xAxis,
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)]$yAxis,
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)]$width = 700,
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)]$height = 400,
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)]$left = 10,
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)]$top = 10,
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)]$title = "",
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)][ValidateScript({$_ -in ([System.Drawing.Color] | Get-Member -Static -MemberType Properties).Name})]$chartColor = "Transparent",
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)][ValidateScript({$_ -in ([System.Windows.Forms.DataVisualization.Charting.SeriesChartType] | Get-Member -Static -MemberType Properties).Name})]$chartType,
+        [Parameter(ValueFromPipeline = $true,ParameterSetName = "extra",mandatory=$true)][bool]$generateImage,
+        [Parameter(ValueFromPipeline = $true,ParameterSetName = "extra",mandatory=$false)][string]$imgExt="png",
+        [Parameter(ValueFromPipeline = $true,ParameterSetName = "extra",mandatory=$false)][string]$saveImagePath="$env:TEMP\image.png"
+    )    
+    
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Windows.Forms.DataVisualization
+
+    $Chart = New-object System.Windows.Forms.DataVisualization.Charting.Chart
+    $ChartArea = New-Object System.Windows.Forms.DataVisualization.Charting.ChartArea
+    $Series = New-Object -TypeName System.Windows.Forms.DataVisualization.Charting.Series
+    $ChartTypes = [System.Windows.Forms.DataVisualization.Charting.SeriesChartType]
+
+    $Series.ChartType = $ChartTypes::$chartType
+    $Chart.Series.Add($Series)
+    $Chart.ChartAreas.Add($ChartArea)
+
+    $Chart.Series['Series1'].Points.DataBindXY($xAxis, $yAxis)
+    $Chart.Width = $width
+    $Chart.Height = $height
+    $Chart.Left = $left
+    $Chart.Top = $top
+    $Chart.BackColor = [System.Drawing.Color]::$chartColor
+    $Chart.BorderColor = 'Black'
+    $Chart.BorderDashStyle = 'Solid'    
+    
+
+    $ChartTitle = New-Object System.Windows.Forms.DataVisualization.Charting.Title
+    $ChartTitle.Text = $title
+    $Font = New-Object System.Drawing.Font @('Microsoft Sans Serif','12', [System.Drawing.FontStyle]::Bold)
+    $ChartTitle.Font =$Font
+    $Chart.Titles.Add($ChartTitle)
+
+    $Legend = New-Object System.Windows.Forms.DataVisualization.Charting.Legend
+    $Legend.IsEquallySpacedItems = $True
+    $Legend.BorderColor = 'Black'
+    $Chart.Legends.Add($Legend)
+    $chart.Series["Series1"].LegendText = "#VALX (#VALY)"
+    $Chart.Series['Series1']['PieLineColor'] = 'Black'
+    $Chart.Series['Series1']['PieLabelStyle'] = 'Outside'
+    $Chart.Series['Series1'].Label = "#VALX (#VALY)"
+
+    $ChartArea.Area3DStyle.Enable3D=$True
+    $ChartArea.Area3DStyle.Inclination = 60
+    
+    if($generateImage) {
+        $Chart.SaveImage($saveImagePath, $imgExt)
+    }
+    
+    Return $Chart
+}
+
+#$Processes = Get-Process | Sort-Object WS -Descending | Select-Object -First 10
+#$s = New-Chart -xAxis $Processes.Name -yAxis $Processes.WS -chartType "Pie" -generateImage $true 
