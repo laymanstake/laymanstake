@@ -240,7 +240,7 @@ function New-ToastNotification {
     [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
 }
 #Invoke-Command -ComputerName 192.168.1.22 -ScriptBlock ${function:New-ToastNotification} -Credential (Get-Credential)
-New-ToastNotification -title "This is custom notification" -message "One liner custom message. Some extra long, super long message " -logo "C:\temp\extra.png" -extraImage "C:\temp\extra.png" -heroImage "C:\temp\hero.png" -action1 ("Nitish Kumar Blog","https://nitishkumar.net","protocol","C:\temp\1616.png") -action2 ("Ignore","dismiss","system","C:\temp\1616.png")  -action3 ("Ignore-test","dismiss","system","C:\temp\logo.png")
+#New-ToastNotification -title "This is custom notification" -message "One liner custom message. Some extra long, super long message " -logo "C:\temp\extra.png" -extraImage "C:\temp\extra.png" -heroImage "C:\temp\hero.png" -action1 ("Nitish Kumar Blog","https://nitishkumar.net","protocol","C:\temp\1616.png") -action2 ("Ignore","dismiss","system","C:\temp\1616.png")  -action3 ("Ignore-test","dismiss","system","C:\temp\logo.png")
 
 # Funtion to create a save dialog
 function New-SaveDialog {
