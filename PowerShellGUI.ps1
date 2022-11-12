@@ -1,5 +1,6 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Windows.Forms.DataVisualization
+
 function New-SplashFromImage{
     [CmdletBinding()]
     Param(
@@ -101,6 +102,29 @@ function New-BaloonNotification {
 }
 New-BaloonNotification -title "The Notification from Nitish Kumar : " -message "Just trying out cool stuff" -script $Script #>
 
+# Function to get password expiration date for the given samAccountName
+function Get-PasswordExpiry {
+    Param(
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)][String]$samAcccountName = ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name -split "\\")[1]
+    )
+    # Step 1 - Find the max password age as per domain policy
+    $currentDomain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain() # Find current domain
+    $domain = [ADSI]"LDAP://$currentDomain" # find current domain LDAP coordinates
+    $maxPasswordAge = $domain.ConvertLargeIntegerToInt64($domain.maxPwdAge.Value)/(600000000 * 1440) # Max password age in days
+
+    # Step 2 - Find when the password was last set for the user
+    $searcher = New-Object DirectoryServices.DirectorySearcher # Create ADSI searcher
+    [adsisearcher]$searcher.Filter = "(&(samaccountname=$samAccountName))" # Create search query
+    $results = $searcher.FindOne() # Perform the search
+    $passwordLastSet = [datetime]::FromFileTimeUtc($results.Properties.pwdlastset) # Find when the password was last set
+
+    # Step 3 - Find when the password would be expired for the user
+    $passwordExpirationDate = $passwordLastSet.AddDays($maxPasswordAge)
+
+    Return $passwordExpirationDate
+}
+
+# Function to generate Windows 10 Toast notification
 function New-ToastNotification {
     [cmdletBinding()]
     Param(
@@ -110,14 +134,24 @@ function New-ToastNotification {
         [Parameter(ValueFromPipeline = $true,mandatory=$false)][ValidateSet('long','short')][String]$duration = "short",
         [Parameter(ValueFromPipeline = $true,mandatory=$false)][String]$logo = $null,
         [Parameter(ValueFromPipeline = $true,mandatory=$false)][String]$heroImage = $null,
-        [Parameter(ValueFromPipeline = $true,mandatory=$false)][String]$extraImage = $null
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)][String]$extraImage = $null,
+        [Parameter(ValueFromPipeline = $true,mandatory=$false, ParameterSetName = "Actions",
+                    HelpMessage = "Need to provide content, argument, protocol and optionally imgeuri")][string[]]$action1 = ("Nitish Kumar's Blog","http://nitishkumar.net","protocol","C:\temp\1616.png"),
+        [Parameter(ValueFromPipelineByPropertyName = $true,mandatory=$false, ParameterSetName = "Actions",
+                    HelpMessage = "Need to provide content, argument, protocol and optionally imgeuri")][string[]]$action2,
+        [Parameter(ValueFromPipelineByPropertyName = $true,mandatory=$false, ParameterSetName = "Actions",
+                    HelpMessage = "Need to provide content, argument, protocol and optionally imgeuri")][string[]]$action3
     )
+
+    if ((Get-CimInstance win32_operatingSystem).version -lt 10){
+        # If OS less than Windows 10 then generate balloon notification instead
+        New-BaloonNotification -title $title -message $message -icon Warning 
+        return        
+    }
 
     if ($PSVersionTable.PSVersion.Major -ge 6) {
         Write-Host "Script is running in PowerShell version $($PSVersionTable.PSVersion.Major).x so need to manually load libraries"
         Add-Type -Path "C:\temp\lib\Microsoft.Windows.SDK.NET.dll"
-      #  Add-Type -Path "C:\temp\lib\WinRT.Runtime.dll"
-      #  Add-Type -Path "C:\temp\lib\Microsoft.Toolkit.Uwp.Notifications.dll"
     } else {
         [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
         [Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
@@ -139,25 +173,19 @@ function New-ToastNotification {
         Get-Service -Name WpnUserService** | Restart-Service -Force
     }
 
-[xml]$toastXml = @"
-<?xml version="1.0" encoding="utf-8"?>
-<toast>
-  <visual>
-    <binding template="ToastGeneric">
-	  <text></text> # Block for notification headline
-	  <text></text> # Block for notification content
-	  <text></text> # Block for notification sender
-      <image src="" /> # Block for logo image
-	  <image src="" /> # Block for hero image     
-      <image src="" /> # Block for extra image
-	</binding>
-  </visual>
-  <actions>    
-	<action content="Nitish Kumar Blog" arguments="https://nitishkumar.net" activationType="protocol" /> # Testing
-    <action content="Ignore" arguments="dismiss" activationType="system" />    
-  </actions>
-</toast>
-"@
+    if($action1){   $firstAction  = "<action content=""$($action1[0])"" arguments=""$($action1[1])"" activationType=""$($action1[2])"" imageUri=""$($action1[3])"" />"  }    
+    if($action2){   $secondAction = "<action content=""$($action2[0])"" arguments=""$($action2[1])"" activationType=""$($action2[2])"" imageUri=""$($action2[3])"" />"  }    
+    if($action3){   $thirdAction  = "<action content=""$($action3[0])"" arguments=""$($action3[1])"" activationType=""$($action3[2])"" imageUri=""$($action3[3])"" />"  }
+    
+    if($firstAction -OR $secondAction -OR $thirdAction) {
+        $actionStart = '<actions>'
+        $actionClose = '</actions>'
+    }
+
+    [xml]$toastXml = '<?xml version="1.0" encoding="utf-8"?><toast><visual><binding template="ToastGeneric">' +
+                    '<text></text><text></text><text></text><image src="" /><image src="" /><image src="" /></binding></visual>' +
+                    $actionStart + $firstAction + $secondAction + $thirdAction + $actionClose +
+                    '</toast>'
 
     # Below lines are to create Base64 string for logo in case you want to burn that in the script itself than supplying from outside
     <# $File = "C:\temp\logo1.png"
@@ -212,7 +240,7 @@ function New-ToastNotification {
     [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
 }
 #Invoke-Command -ComputerName 192.168.1.22 -ScriptBlock ${function:New-ToastNotification} -Credential (Get-Credential)
-#New-ToastNotification -title "This is custom notification" -message "One liner custom message. Some extra long, super long message " -logo "" -extraImage "C:\temp\extra.png" #-heroImage "C:\temp\hero.png" 
+New-ToastNotification -title "This is custom notification" -message "One liner custom message. Some extra long, super long message " -logo "C:\temp\extra.png" -extraImage "C:\temp\extra.png" -heroImage "C:\temp\hero.png" -action1 ("Nitish Kumar Blog","https://nitishkumar.net","protocol","C:\temp\1616.png") -action2 ("Ignore","dismiss","system","C:\temp\1616.png")  -action3 ("Ignore-test","dismiss","system","C:\temp\logo.png")
 
 # Funtion to create a save dialog
 function New-SaveDialog {
