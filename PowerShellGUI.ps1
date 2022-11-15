@@ -131,10 +131,10 @@ function New-ToastNotification {
         [Parameter(ValueFromPipeline = $true,mandatory=$false)][String]$title = "Test Title",
         [Parameter(ValueFromPipeline = $true,mandatory=$false)][String]$message = "Test Message",        
         [Parameter(ValueFromPipeline = $true,mandatory=$false)][String]$Sender = "IT Team",
-        [Parameter(ValueFromPipeline = $true,mandatory=$false)][ValidateSet('long','short')][String]$duration = "short",
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)][ValidateSet('long','short')][String]$duration = "long",
         [Parameter(ValueFromPipeline = $true,mandatory=$false)][String]$logo = $null,
         [Parameter(ValueFromPipeline = $true,mandatory=$false)][String]$heroImage = $null,
-        [Parameter(ValueFromPipeline = $true,mandatory=$false)][String]$extraImage = $null,
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)][String]$extraImage = $null,        
         [Parameter(ValueFromPipeline = $true,mandatory=$false, ParameterSetName = "Actions",
                     HelpMessage = "Need to provide content, argument, protocol and optionally imgeuri")][string[]]$action1 = ("Nitish Kumar's Blog","http://nitishkumar.net","protocol","C:\temp\1616.png"),
         [Parameter(ValueFromPipelineByPropertyName = $true,mandatory=$false, ParameterSetName = "Actions",
@@ -149,7 +149,7 @@ function New-ToastNotification {
         return        
     }
 
-    if ($PSVersionTable.PSVersion.Major -ge 6) {
+    if ($PSEdition -eq "Core") {
         Write-Host "Script is running in PowerShell version $($PSVersionTable.PSVersion.Major).x so need to manually load libraries"
         Add-Type -Path "C:\temp\lib\Microsoft.Windows.SDK.NET.dll"
     } else {
@@ -180,13 +180,13 @@ function New-ToastNotification {
     if($firstAction -OR $secondAction -OR $thirdAction) {
         $actionStart = '<actions>'
         $actionClose = '</actions>'
-    }
+    }    
 
     [xml]$toastXml = '<?xml version="1.0" encoding="utf-8"?><toast><visual><binding template="ToastGeneric">' +
                     '<text></text><text></text><text></text><image src="" /><image src="" /><image src="" /></binding></visual>' +
                     $actionStart + $firstAction + $secondAction + $thirdAction + $actionClose +
-                    '</toast>'
-
+                    '</toast>'    
+    
     # Below lines are to create Base64 string for logo in case you want to burn that in the script itself than supplying from outside
     <# $File = "C:\temp\logo1.png"
     $Image = [System.Drawing.Image]::FromFile($File)
@@ -208,6 +208,9 @@ function New-ToastNotification {
 
     $toastXml.GetElementsByTagName("text")[0].AppendChild($toastXml.CreateTextNode($title)) | Out-Null
     $toastXml.GetElementsByTagName("text")[1].AppendChild($toastXml.CreateTextNode($message)) | Out-Null
+    $toastXml.GetElementsByTagName("text")[2].SetAttribute("placement","Attribution") | Out-Null
+    $toastXml.GetElementsByTagName("text")[2].AppendChild($toastXml.CreateTextNode("Notifiaiton by " + $Sender)) | Out-Null
+    
     if ($logo.Length -ge 1){
         if ($logo -match "http*"){ $wc = New-Object System.Net.WebClient; $logoLocal = "$($env:TEMP)\logoImage.png"; $wc.DownloadFile($logo, $logoLocal)} 
         else { $logoLocal = $logo }
@@ -229,18 +232,16 @@ function New-ToastNotification {
 
         $toastXml.GetElementsByTagName("image")[2].SetAttribute("src",$extraImageLocal) | Out-Null
     }
-    $toastXml.toast.SetAttribute("duration",$duration)
-    $toastXml.GetElementsByTagName("text")[2].SetAttribute("placement","Attribution") | Out-Null
-    $toastXml.GetElementsByTagName("text")[2].AppendChild($toastXml.CreateTextNode("Notifiaiton by " + $Sender)) | Out-Null
+    $toastXml.toast.SetAttribute("duration",$duration)    
 
     $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
     $xml.LoadXml($toastXml.OuterXml)
     $toast = New-Object Windows.UI.Notifications.ToastNotification $xml
     
-    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
+    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)    
 }
 #Invoke-Command -ComputerName 192.168.1.22 -ScriptBlock ${function:New-ToastNotification} -Credential (Get-Credential)
-#New-ToastNotification -title "This is custom notification" -message "One liner custom message. Some extra long, super long message " -logo "C:\temp\extra.png" -extraImage "C:\temp\extra.png" -heroImage "C:\temp\hero.png" -action1 ("Nitish Kumar Blog","https://nitishkumar.net","protocol","C:\temp\1616.png") -action2 ("Ignore","dismiss","system","C:\temp\1616.png")  -action3 ("Ignore-test","dismiss","system","C:\temp\logo.png")
+#New-ToastNotification -title "This is custom notification" -message "One liner custom message. Some extra long, super long message " -logo "C:\temp\extra.png" -extraImage "C:\temp\extra.png" -heroImage "C:\temp\hero.png" -action1 ("Nitish Kumar Blog","https://nitishkumar.net","protocol","C:\temp\1616.png") -action2 ("Ignore","dismiss","system","C:\temp\logo.png")  -action3 ("Ignore-test","dismiss","system")
 
 # Funtion to create a save dialog
 function New-SaveDialog {
@@ -339,3 +340,4 @@ function New-Chart {
 
 #$Processes = Get-Process | Sort-Object WS -Descending | Select-Object -First 10
 #$s = New-Chart -xAxis $Processes.Name -yAxis $Processes.WS -chartType "Pie" -generateImage $true 
+
