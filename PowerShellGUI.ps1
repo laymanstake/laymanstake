@@ -124,6 +124,41 @@ function Get-PasswordExpiry {
     Return $passwordExpirationDate
 }
 
+# Function to extract icon from the given file
+function Get-Icon {
+    [cmdletBinding()]
+    param(
+        [Parameter(ValueFromPipeline = $true,HelpMessage = "Specify the path to the file",mandatory=$true)][ValidateScript({if( -Not($_ | Test-Path)){ throw "File doesn't exists" } else {return $true}})][String]$fileName,
+        [Parameter(ValueFromPipeline = $true,HelpMessage = "Specify the icon file type, default is Png",mandatory=$false)][ValidateScript({$_ -in (([System.Drawing.Imaging.ImageFormat] | get-member -Static -MemberType Properties)).Name})]$iconFormat = "Png",
+        [Parameter(ValueFromPipeline = $true,HelpMessage = "Specify the folder to save the file",mandatory=$false)][ValidateScript({if( -Not($_ | Test-Path )){ throw "Folder doesn't exists" } else {return $true}})][string]$savePath=".",
+        [Parameter(ValueFromPipeline = $true,HelpMessage = "Specify the icon file name",mandatory=$false)][ValidateNotNullOrEmpty()][String]$iconFileName = "icon",
+        [Parameter(ValueFromPipeline = $true,mandatory=$false)][switch]$asBase64
+    )
+
+    Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+    $icon =  [System.Drawing.Icon]::ExtractAssociatedIcon($fileName)
+    if($asBase64){
+        $ms = New-Object System.IO.MemoryStream
+        $icon.save($ms)
+        $bytes = $ms.ToArray()
+        $base64 = [convert]::ToBase64String($Bytes)
+        $ms.Flush()
+        $ms.Dispose()
+        
+        return $base64
+    } else {
+        $outPath = $savePath + "\" + $iconFileName + "." + $iconFormat
+        $icon.ToBitmap().Save($outPath,$iconFormat)
+
+        $finalPath = (get-item $outPath).FullName
+        #Write-Output "The icon file has been saved to $finalPath"
+
+        return $finalPath
+    }
+}
+
+#Get-Icon -fileName "C:\temp\nitish.crt" -iconFormat "jpeg" -iconFileName "sample"
+
 # Function to generate Windows 10 Toast notification
 function New-ToastNotification {
     [cmdletBinding()]
