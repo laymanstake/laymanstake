@@ -132,32 +132,115 @@ function Get-Icon {
         [Parameter(ValueFromPipeline = $true,HelpMessage = "Specify the icon file type, default is Png",mandatory=$false)][ValidateScript({$_ -in (([System.Drawing.Imaging.ImageFormat] | get-member -Static -MemberType Properties)).Name})]$iconFormat = "Png",
         [Parameter(ValueFromPipeline = $true,HelpMessage = "Specify the folder to save the file",mandatory=$false)][ValidateScript({if( -Not($_ | Test-Path )){ throw "Folder doesn't exists" } else {return $true}})][string]$savePath=".",
         [Parameter(ValueFromPipeline = $true,HelpMessage = "Specify the icon file name",mandatory=$false)][ValidateNotNullOrEmpty()][String]$iconFileName = "icon",
+        [Parameter(ValueFromPipeline = $true,HelpMessage = "Specify the icon index in dll",mandatory=$false)][ValidateRange(-2, [int]::MaxValue)][int]$dllIconIndex = -2,
+        [Parameter(ValueFromPipeline = $true,HelpMessage = "Specify the icon size in dll (small or large)",mandatory=$false)][ValidateSet('small','large')][string]$dllIconSize,
         [Parameter(ValueFromPipeline = $true,mandatory=$false)][switch]$asBase64
     )
 
     Add-Type -AssemblyName System.Drawing -ErrorAction Stop
-    $icon =  [System.Drawing.Icon]::ExtractAssociatedIcon($fileName)
-    if($asBase64){
-        $ms = New-Object System.IO.MemoryStream
-        $icon.save($ms)
-        $bytes = $ms.ToArray()
-        $base64 = [convert]::ToBase64String($Bytes)
-        $ms.Flush()
-        $ms.Dispose()
         
-        return $base64
+    if ([System.IO.Path]::GetExtension($filename) -ne ".dll"){
+        $icon =  [System.Drawing.Icon]::ExtractAssociatedIcon($fileName)
+        if($asBase64){
+            $ms = New-Object System.IO.MemoryStream
+            $icon.save($ms)
+            $bytes = $ms.ToArray()
+            $base64 = [convert]::ToBase64String($Bytes)
+            $ms.Flush()
+            $ms.Dispose()
+            
+            return $base64
+        } else {
+            $outPath = $savePath + "\" + $iconFileName + "." + $iconFormat
+            $icon.ToBitmap().Save($outPath,$iconFormat)
+
+            $finalPath = (get-item $outPath).FullName
+            #Write-Output "The icon file has been saved to $finalPath"
+
+            return $finalPath
+        }
     } else {
-        $outPath = $savePath + "\" + $iconFileName + "." + $iconFormat
-        $icon.ToBitmap().Save($outPath,$iconFormat)
+        # ref https://github.com/ReneNyffenegger/about-powershell/blob/master/examples/WinAPI/Shell32/Extract/Shell32_Extract.ps1
+        # using c# code to call function from shell32.dll
+        add-type -typeDefinition '
+        using System;
+        using System.Runtime.InteropServices;
+        public class Shell32_Extract {  
+            [DllImport("Shell32.dll", EntryPoint = "ExtractIconExW", CharSet = CharSet.Unicode, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+            public static extern int ExtractIconEx(string lpszFile, int iconIndex, out IntPtr phiconLarge, out IntPtr phiconSmall, int nIcons );
+        }
+        ';
 
-        $finalPath = (get-item $outPath).FullName
-        #Write-Output "The icon file has been saved to $finalPath"
+        $dllPath = $fileName
 
-        return $finalPath
+        [System.IntPtr] $phiconSmall = 0
+        [System.IntPtr] $phiconLarge = 0
+
+        if($dllIconIndex -ge 0){            
+            Write-Host "Now about single icon"
+            $dllIconIndex
+            $nofIconsExtracted = [Shell32_Extract]::ExtractIconEx($dllPath, $dllIconIndex, [ref] $phiconLarge, [ref] $phiconSmall, 1)   
+            if ($nofIconsExtracted -ne 2) { 
+                write-error "iconsExtracted = $nofIconsExtracted" 
+            } else {
+                if ($dllIconSize -eq 'small'){
+                    $bmpSmall = ([System.Drawing.Icon]::FromHandle($phiconSmall))
+                    if($asBase64){
+                        $ms = New-Object System.IO.MemoryStream
+                        $bmpSmall.save($ms)
+                        $bytes = $ms.ToArray()
+                        $base64 = [convert]::ToBase64String($Bytes)
+                        $ms.Flush()
+                        $ms.Dispose()                        
+                        return $base64
+                    } else {
+                        $outPath = $savePath + "\" + $iconFileName + "." + $iconFormat
+                        $bmpSmall.ToBitmap().Save($outPath,$iconFormat)            
+                        $finalPath = (get-item $outPath).FullName            
+                        return $finalPath
+                    }
+                } else {
+                    $bmpLarge = ([System.Drawing.Icon]::FromHandle($phiconLarge))
+                    if($asBase64){
+                        $ms = New-Object System.IO.MemoryStream
+                        $bmpLarge.save($ms)
+                        $bytes = $ms.ToArray()
+                        $base64 = [convert]::ToBase64String($Bytes)
+                        $base64
+                        $ms.Flush()
+                        $ms.Dispose()                        
+                        return $base64
+                    } else {
+                        $outPath = $savePath + "\" + $iconFileName + "." + $iconFormat
+                        $bmpLarge.ToBitmap().Save($outPath,$iconFormat)
+                        $finalPath = (get-item $outPath).FullName
+                        return $finalPath
+                    }
+                }
+            }
+        }
+        else {                        
+            $nofImages = [Shell32_Extract]::ExtractIconEx($dllPath, -1, [ref] $phiconLarge, [ref] $phiconSmall, 0)
+
+            foreach ($iconIndex in 0 .. ($nofImages-1)) {
+                $nofIconsExtracted = [Shell32_Extract]::ExtractIconEx($dllPath, $iconIndex, [ref] $phiconLarge, [ref] $phiconSmall, 1)   
+                if ($nofIconsExtracted -ne 2) { write-error "iconsExtracted = $nofIconsExtracted" }                
+
+                $small = [System.Drawing.Icon]::FromHandle($phiconSmall)
+                $large = [System.Drawing.Icon]::FromHandle($phiconLarge)
+
+                $bmpSmall = $small.ToBitmap()
+                $bmpLarge = $large.ToBitmap()                
+                $iconIndex_0  = '{0,3:000}' -f $iconIndex            
+
+                $bmpSmall.Save("$($savePath)\$($iconFileName)_small-$($iconIndex_0).$($iconFormat)", [System.Drawing.Imaging.ImageFormat]::$iconFormat)
+                $bmpLarge.Save("$($savePath)\$($iconFileName)_large-$($iconIndex_0).$($iconFormat)", [System.Drawing.Imaging.ImageFormat]::$iconFormat)
+            }
+        }
     }
 }
 
-#Get-Icon -fileName "C:\temp\nitish.crt" -iconFormat "jpeg" -iconFileName "sample"
+#Get-Icon -fileName "$env:SystemRoot\System32\imageres.dll" -iconFormat "jpeg" -iconFileName "supericon" -savePath "C:\temp" -dllIconIndex 191 -dllIconSize "small" # -asBase64
 
 # Function to generate Windows 10 Toast notification
 function New-ToastNotification {
