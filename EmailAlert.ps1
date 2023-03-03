@@ -6,48 +6,48 @@
 function EmailAlert () {
 	[CmdletBinding()]
 	param(
-		[parameter(mandatory=$true)]$RecipientAddressTo,		
-		[parameter(mandatory=$true)]$SenderAddress,
-		[parameter(mandatory=$true)]$SMTPServer,		
-		[parameter(mandatory=$true)]$Subject,
-		[parameter(mandatory=$true)]$Body,
-		[parameter(mandatory=$false)]$SMTPServerPort="25",		
-		[parameter(mandatory=$false)]$RecipientAddressCc,
-		[parameter(mandatory=$false)][switch]$SMTPServerSSL=$false
+		[parameter(mandatory = $true)]$RecipientAddressTo,		
+		[parameter(mandatory = $true)]$SenderAddress,
+		[parameter(mandatory = $true)]$SMTPServer,		
+		[parameter(mandatory = $true)]$Subject,
+		[parameter(mandatory = $true)]$Body,
+		[parameter(mandatory = $false)]$SMTPServerPort = "25",		
+		[parameter(mandatory = $false)]$RecipientAddressCc,
+		[parameter(mandatory = $false)][switch]$SMTPServerSSL = $false
 	)
 
-	if ($RecipientAddressCc){
-		try{
+	if ($RecipientAddressCc) {
+		try {
 			$email = @{
-				From = $SenderAddress
-				To = $RecipientAddressTo
-				Cc = $RecipientAddressCc
-				Subject = $Subject
-				Body = $Body
+				From       = $SenderAddress
+				To         = $RecipientAddressTo
+				Cc         = $RecipientAddressCc
+				Subject    = $Subject
+				Body       = $Body
 				SmtpServer = $SMTPServer
-				Port = $SMTPServerPort
-				UseSsl = $SMTPServerSSL
+				Port       = $SMTPServerPort
+				UseSsl     = $SMTPServerSSL
 			}		
 			Send-MailMessage @email 
 		}
-		Catch{
+		Catch {
 			Throw $_.exception.message 
 		}
 	}
 	else {
-		try{
+		try {
 			$email = @{
-				From = $SenderAddress
-				To = $RecipientAddressTo
-				Subject = $Subject
-				Body = $Body
+				From       = $SenderAddress
+				To         = $RecipientAddressTo
+				Subject    = $Subject
+				Body       = $Body
 				SmtpServer = $SMTPServer			
-				Port = $SMTPServerPort
-				UseSsl = $SMTPServerSSL
+				Port       = $SMTPServerPort
+				UseSsl     = $SMTPServerSSL
 			}		
 			Send-MailMessage @email 
 		}
-		Catch{
+		Catch {
 			Throw $_.exception.message 
 		}
 	}
