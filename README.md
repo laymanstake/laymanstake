@@ -7,16 +7,15 @@
 <a href="url"><img src="https://nitishkumar.files.wordpress.com/2022/10/cropped-img_20220723_094547-removebg-preview.png" height="auto" width="160" style="border-radius:50%" overflow: "hidden"></a>
 
 </div>
-:man_technologist: About Me : 
+:man_technologist: About Me :
 
 ---
 
-- 👋 Hi, I’m Nitish Kumar @laymanstake. Working in Windows Infrastructure since almost two decades now. <br>
-- 👀 I’m interested in  O365/ Azure/ System Administration and PowerShell <br>
+- 👋 Hi, I’m Nitish Kumar @laymanstake. Working in Windows Infra since almost two decades now. <br>
+- 👀 I’m interested in O365/ Azure/ System Administration and PowerShell <br>
 - 🌱 I’m currently learning Powershell, DevOps, Python and enjoying Grafana, Prometheus <br>
 - 💞️ I’m looking to collaborate on PowerShell, Devops. </br>
-- :mailbox:How to reach me: <a href="https://www.linkedin.com/in/kumarnitish/"><img src="https://img.shields.io/badge/-Nitish Kumar-blue?style=flat&logo=Linkedin&logoColor=white" alt="LinkedIn Badge"/>  </a> </br>
-
+- :mailbox:How to reach me: <a href="https://www.linkedin.com/in/kumarnitish/"><img src="https://img.shields.io/badge/-Nitish Kumar-blue?style=flat&logo=Linkedin&logoColor=white" alt="LinkedIn Badge"/> </a> </br>
 
 <!-- Markdown -->
 
@@ -71,7 +70,7 @@
 ---
 
 ### :fire: My Stats :
+
 [![GitHub Streak](http://github-readme-streak-stats.herokuapp.com?user=laymanstake&theme=dark&background=000000)](https://git.io/streak-stats)
 
 [![Top Langs](https://github-readme-stats.vercel.app/api/top-langs/?username=your-github-username&layout=compact&theme=vision-friendly-dark)](https://github.com/anuraghazra/github-readme-stats)
-
