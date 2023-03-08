@@ -1,7 +1,3 @@
-<div id="header" align="center">
-<img src="https://media-exp1.licdn.com/dms/image/C5616AQEjMyzckGMKeA/profile-displaybackgroundimage-shrink_350_1400/0/1660402669015?e=1672272000&v=beta&t=zXxn7mu86ydE9r5G38LO8TYQIoHpIxScXkgc2nxgTaA"/>
-
-</div>
 <br></br>
 <div align="left">
 <a href="url"><img src="https://nitishkumar.files.wordpress.com/2022/10/cropped-img_20220723_094547-removebg-preview.png" height="auto" width="160" style="border-radius:50%" overflow: "hidden"></a>
