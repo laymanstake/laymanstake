@@ -55,7 +55,7 @@ $func = {
 # All Servers which are part of certain group | Can be used any other condition
 #$Servers = (Get-ADGroupMember CustomGroup).Name | get-adcomputer -properties * | select-object Name, IPv4Address, OperatingSystem
 
-$Servers = ("XYZ", "ABC", "qwerty")
+$Servers = ("XYZ", "ABC", "QWERTY")
 $i = $Servers.count
 
 ForEach ($hostname in $Servers) {
@@ -63,8 +63,12 @@ ForEach ($hostname in $Servers) {
     $f1 = {
         Inventory $using:hostname
     }
-    
-    Start-Job -Name "Inventory.$hostname" -InitializationScript $func -ScriptBlock $f1 | Out-Null
+    If (Test-Connection $hostname -Quiet -Ping) {
+        Start-Job -Name "Inventory.$hostname" -InitializationScript $func -ScriptBlock $f1 | Out-Null
+    }
+    Else {
+        Write-Host "$hostname not reachable"
+    }
 }
 
 
@@ -82,6 +86,8 @@ foreach ($Job in (Get-Job | Where-Object { $_.Name -like "Inventory.*" })) {
     $Result += $JobResult
     Remove-Job $Job
 }
+
+Clear-Host
 
 $Result | Export-csv -nti $env:userprofile\desktop\Inventory.csv
 
