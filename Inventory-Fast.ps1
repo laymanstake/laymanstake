@@ -83,5 +83,5 @@ foreach ($Job in (Get-Job | Where-Object { $_.Name -like "Inventory.*" })) {
     Remove-Job $Job
 }
 
-$Result 
+$Result | Export-csv -nti $env:userprofile\desktop\Inventory.csv
 
