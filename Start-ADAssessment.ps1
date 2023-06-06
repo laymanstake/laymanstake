@@ -24,7 +24,7 @@ $header = @"
     tbody tr:nth-child(even) { background: #f0f0f2; }
     CreationDate { font-family: Arial, Helvetica, sans-serif; color: #ff3300; font-size: 12px; }
 </style>
-<img src="$logopath" alt="Company logo" width="150" height="150">
+<img src="$logopath" alt="Company logo" width="150" height="150" align="right">
 "@
 
 
