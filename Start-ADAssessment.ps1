@@ -12,19 +12,19 @@ $logopath = "https://camo.githubusercontent.com/239d9de795c471d44ad89783ec7dc03a
 $ReportPath1 = "$env:USERPROFILE\desktop\ADReport_$(get-date -Uformat "%Y%m%d-%H%M%S").html"
 $CopyRightInfo = " @Copyright Niitsh Kumar <a href='https://github.com/laymanstake'>Visit nitishkumar.net</a>"
 
-#CSS codes to format the report
+# CSS codes to format the report
 $header = @"
 <style>
     body { background-color: #b9d7f7; }
     h1 { font-family: Arial, Helvetica, sans-serif; color: #e68a00; font-size: 28px; }    
     h2 { font-family: Arial, Helvetica, sans-serif; color: #000099; font-size: 16px; }    
-    table { font-size: 12px; border: 0px;  font-family: Arial, Helvetica, sans-serif; } 	
-    td { padding: 4px; margin: 0px; border: 0; }	
+    table { font-size: 12px; border: 1px;  font-family: Arial, Helvetica, sans-serif; } 	
+    td { padding: 4px; margin: 0px; border: 1; }	
     th { background: #395870; background: linear-gradient(#49708f, #293f50); color: #fff; font-size: 11px; text-transform: uppercase; padding: 10px 15px; vertical-align: middle; }
     tbody tr:nth-child(even) { background: #f0f0f2; }
     CreationDate { font-family: Arial, Helvetica, sans-serif; color: #ff3300; font-size: 12px; }
 </style>
-<img src="$logopath" alt="Company logo" width="150" height="150" align="right">
+<img src=$logopath alt="Company logo" width="150" height="150" align="right">
 "@
 
 
@@ -122,6 +122,7 @@ Function Get-ADDHCPDetails {
             InactiveScopeCount = $InactiveScopes.count
             ScopeWithNoLease   = $NoLeaseScopes -join "`n"
             NoLeaseScopeCount  = $NoLeaseScopes.count
+            IsVirtual          = ((Get-CimInstance Win32_ComputerSystem -ComputerName $dhcpserver).model).Contains("Virtual")
         }
     }
     
@@ -245,6 +246,7 @@ Function Get-ADDomainDetails {
                 Firewall          = (Get-Service -name MpsSvc -ComputerName $dc).Status
                 NetlogonParameter = ($Results[1]).vulnerablechannelallowlist
                 ReadOnly          = $dc.IsReadOnly
+                IsVirtual         = ((Get-CimInstance Win32_ComputerSystem -ComputerName $dc).model).Contains("Virtual")
                 UndesiredFeatures = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject  (Get-WindowsFeature -ComputerName $dc | Where-Object Installed).Name -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
             }
         }
@@ -252,6 +254,58 @@ Function Get-ADDomainDetails {
     
     return $DomainDetails    
 }
+
+Function Get-ADSiteDetails {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+    )
+
+    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+
+    $sites = Get-ADReplicationSite -Filter * -Server $PDC -Properties WhenCreated, WhenChanged, ProtectedFromAccidentalDeletion, Subnets
+    $SiteDetails = @()
+    
+    foreach ($site in $sites) {
+        $dcs = @(Get-ADDomainController -Filter { Site -eq $site.Name } -Server $PDC)
+        if ($dcs.Count -eq 0) {
+            $SiteDetails += New-Object PSObject -Property @{
+                DomainName                          = $DomainName
+                SiteName                            = $site.Name
+                DCinSite                            = "No DC in Site"
+                SiteLink                            = $link.Name
+                SiteLinkType                        = $link.InterSiteTransportProtocol
+                SiteLinkCost                        = $link.Cost
+                ReplicationInterval                 = $link.replInterval
+                SiteProtectedFromAccidentalDeletion = $site.ProtectedFromAccidentalDeletion
+                LinkProtectedFromAccidentalDeletion = $link.ProtectedFromAccidentalDeletion
+            }
+        }
+        else {
+            foreach ($dc in $dcs) {
+                $links = Get-ADReplicationSiteLink -Filter * -Server $PDC -Properties InterSiteTransportProtocol, replInterval, ProtectedFromAccidentalDeletion | Where-Object { $_.sitesIncluded -contains $site.DistinguishedName }
+                foreach ($link in $links) {
+                    $SiteDetails += New-Object PSObject -Property @{
+                        DomainName                          = $DomainName
+                        SiteName                            = $site.Name
+                        DCinSite                            = $dc.Name
+                        SiteLink                            = $link.Name
+                        SiteLinkType                        = $link.InterSiteTransportProtocol
+                        SiteLinkCost                        = $link.Cost
+                        ReplicationInterval                 = $link.replInterval
+                        SiteProtectedFromAccidentalDeletion = $site.ProtectedFromAccidentalDeletion
+                        LinkProtectedFromAccidentalDeletion = $link.ProtectedFromAccidentalDeletion
+                    }
+                }
+            }
+        }
+    }
+
+    $SiteDetails = $SiteDetails | Select-Object DomainName, SiteName, SiteProtectedFromAccidentalDeletion, DC, SiteLink, SiteLinkType, SiteLinkCost, ReplicationInterval, LinkProtectedFromAccidentalDeletion
+    
+    return $SiteDetails
+}
+
 
 Function Get-PrivGroupDetails {
     [CmdletBinding()]
@@ -264,8 +318,7 @@ Function Get-PrivGroupDetails {
     $PrivGroupSIDs = @(@("Domain Admins", ($domainSID + "-512")), 
         @("Domain Guests", ($domainSID + "-514")), 
         @("Cert Publishers", ($domainSID + "-517")), 
-        @("Group Policy Creator Owners", ($domainSID + "-520")), 
-        @("Administrators", "S-1-5-32-544"), 
+        @("Group Policy Creator Owners", ($domainSID + "-520")),         
         @("Account Operators", "S-1-5-32-548"), 
         @("Server Operators", "S-1-5-32-549"), 
         @("Backup Operators", "S-1-5-32-551"), 
@@ -278,7 +331,7 @@ Function Get-PrivGroupDetails {
             DomainName        = $DomainName
             OriginalGroupName = $groupSID[0]
             GroupName         = (Get-ADGroup -Server $PDC -Identity $GroupSID[1]).Name
-            MemberCount       = @(Get-ADGroup -Server $PDC -Identity $GroupSID[1] | Get-ADGroupMember -Recursive -Server $PDC).count
+            MemberCount       = @(Get-ADGroupMember -Server $PDC -Identity $GroupSID[1] -Recursive ).count
             IsRenamed         = $groupSID[0] -ne (Get-ADGroup -Server $PDC -Identity $GroupSID[1]).Name
         }
     }
@@ -491,6 +544,7 @@ Function Get-ADForestDetails {
 
     $TrustDetails = @()
     $DomainDetails = @()    
+    $SiteDetails = @()
     $privGroupDetails = @()
     $UserDetails = @()
     $BuiltInUserDetails = @()
@@ -504,6 +558,7 @@ Function Get-ADForestDetails {
     ForEach ($domain in $allDomains) {        
         $TrustDetails += Get-ADTrustDetails -DomainName $domain        
         $DomainDetails += Get-ADDomainDetails -DomainName $domain
+        $SiteDetails += Get-ADSiteDetails -DomainName $domain
         $privGroupDetails += Get-PrivGroupDetails -DomainName $domain        
         $UserDetails += Get-ADUserDetails -DomainName $domain
         $BuiltInUserDetails += Get-BuiltInUserDetails -DomainName $domain
@@ -529,6 +584,7 @@ Function Get-ADForestDetails {
         $ClientOSSummary = $ClientOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Client OS Summary</h2>"
     }
     $DomainSummary = $DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>"    
+    $SitesSummary = $SiteDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Sites Summary</h2>"    
     $BuiltInUserSummary = $BuiltInUserDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>BuiltInUsers Summary</h2>"
     $UserSummary = $UserDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Users Summary</h2>"    
     $PrivGroupSummary = ($privGroupDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Priviledged groups Summary</h2>") -replace '<td>True</td>', '<td bgcolor="red">True</td>'
@@ -537,7 +593,7 @@ Function Get-ADForestDetails {
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
     $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $PwdPolicySummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $PwdPolicySummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath    
 }
 
