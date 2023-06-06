@@ -1,5 +1,5 @@
 # Author : Nitish Kumar
-# Performs an audit of Sita departmental file shares
+# Performs an audit of departmental file shares
 # Outputs the results to a csv file.
 # version 1.0
 # 26 March 2018
@@ -26,7 +26,7 @@ Function GetShareDetails {
 	$Postfix = $FullPath.Replace($BaseShare, "")
 
 	Try { $ShareSec = Get-CIMInstance -Class Win32_LogicalShareSecuritySetting -ComputerName $Server  -filter "Name='$($Share.Name)'"  -ErrorAction silentlycontinue }
-	Catch { Write-Output "Unable to get shares from $($Server)."}
+	Catch { Write-Output "Unable to get shares from $($Server)." }
 
 	if ($shareSec) {
 		$SD = $sharesec.GetSecurityDescriptor()
