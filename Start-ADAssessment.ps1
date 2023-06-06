@@ -71,7 +71,7 @@ Function Get-ADFSDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
     )
 
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    #$PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
 }
 
 # Returns the details of the PKI servers
@@ -94,7 +94,7 @@ Function Get-ADDNSDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
     )
 
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    # $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
 }
 
 # Return the details of DHCP Servers
