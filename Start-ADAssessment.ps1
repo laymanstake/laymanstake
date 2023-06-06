@@ -2,7 +2,7 @@ Try { Import-Module -Name ActiveDirectory -Force -Erroraction stop }
 Catch { Write-Output "ActiveDirectory Module is not installed" }
 
 Try { Import-Module -Name DHCPServer -Force -Erroraction stop }
-Catch { Write-Output "ActiveDirectory Module is not installed" }
+Catch { Write-Output "DHCPServer Module is not installed" }
 
 Import-Module ActiveDirectory
 Import-Module DHCPServer
