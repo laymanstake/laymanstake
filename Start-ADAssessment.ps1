@@ -1,11 +1,14 @@
-Try { Import-Module -Name ActiveDirectory -Force -Erroraction stop }
-Catch { Write-Output "ActiveDirectory Module is not installed" }
-
-Try { Import-Module -Name DHCPServer -Force -Erroraction stop }
-Catch { Write-Output "DHCPServer Module is not installed" }
+#Requires -RunAsAdministrator
+#Requires -Version 3.0
+#Requires -Modules ActiveDirectory, DHCPServer, GroupPolicy
+# Author : Nitish Kumar
+# Performs Active Directory Forest Assessment
+# version 1.0 | 06/06/2023 Initial version
+# The script is kept as much modular as possible so that functions can be modified or added without altering the entire script
 
 Import-Module ActiveDirectory
 Import-Module DHCPServer
+Import-Module GroupPolicy
 
 # Output formating options
 $logopath = "https://camo.githubusercontent.com/239d9de795c471d44ad89783ec7dc03a76f5c0d60d00e457c181b6e95c6950b6/68747470733a2f2f6e69746973686b756d61722e66696c65732e776f726470726573732e636f6d2f323032322f31302f63726f707065642d696d675f32303232303732335f3039343534372d72656d6f766562672d707265766965772e706e67"
@@ -24,8 +27,11 @@ $header = @"
     tbody tr:nth-child(even) { background: #f0f0f2; }
     CreationDate { font-family: Arial, Helvetica, sans-serif; color: #ff3300; font-size: 12px; }
 </style>
-<img src=$logopath alt="Company logo" width="150" height="150" align="right">
 "@
+
+If ($logopath) {
+    $header = $header + "<img src=$logopath alt='Company logo' width='150' height='150' align='right'>"
+}
 
 
 # Numbe of functions to get the details of the environment
@@ -96,7 +102,12 @@ Function Get-ADDNSDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
     )
 
-    # $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $DNSServers = Resolve-DnsName $DomainName -type ns -Server $PDC | Where-Object { $_.type -eq "A" } | Select-Object Name, IP4Address
+
+    ForEach ($DNSServer in $DNSServers) {
+        
+    }
 }
 
 # Return the details of DHCP Servers
@@ -164,15 +175,28 @@ Function Get-ADGPODetails {
     )
     
     $AllGPOs = Get-GPO -All -Domain $DomainName
-    $UnlinkedGPOs = $AllGPOs | Where-Object { $_ | Get-GPOReport -ReportType XML -Domain $DomainName | Select-String -NotMatch "<LinksTo>" } | Select-Object DisplayName, CreationTime, ModificationTime 
+    $LinkedGPOs = @($AllGPOs | Where-Object { $_ | Get-GPOReport -ReportType XML -Domain $DomainName | Select-String -Pattern  "<LinksTo>" -SimpleMatch } | Select-Object DisplayName, CreationTime, ModificationTime )
+    $UnlinkedGPOs = @($AllGPOs | Where-Object { $_ | Get-GPOReport -ReportType XML -Domain $DomainName | Select-String -NotMatch "<LinksTo>" } | Select-Object DisplayName, CreationTime, ModificationTime )
+    $DeactivatedGPOs = @($AllGPOs | Where-Object { $_.GPOStatus -eq "AllSettingsDisabled" } | Select-Object DisplayName, CreationTime, ModificationTime )
+    $LinkedButDeactivatedGPOs = @()
+
+    If ($LinkedGPOs.count -ge 1 -AND $DeactivatedGPOs.Count -ge 1) {
+        $LinkedButDeactivatedGPOs = (Compare-Object -ReferenceObject $DeactivatedGPOs -DifferenceObject $LinkedGPOs -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object InputObject).InputObject
+    }
 
     $UnlinkedGPODetails = [PSCustomObject]@{
         Domain                      = $domainname
         AllGPOs                     = $AllGPOs.count
-        UnlinkedGPOs                = $UnlinkedGPOs.DisplayName -join "`n"
-        UnlinkedGPOCreationTime     = $UnlinkedGPOs.CreationTime -join "`n"
-        UnlinkedGPOModificationTime = $UnlinkedGPOs.ModificationTime -join "`n"
-        UnlinkedGPOCount            = $UnlinkedGPOs.count
+        Unlinked                    = @($UnlinkedGPOs).DisplayName -join "`n"
+        UnlinkedCreationTime        = @($UnlinkedGPOs).CreationTime -join "`n"
+        UnlinkedModificationTime    = @($UnlinkedGPOs).ModificationTime -join "`n"
+        UnlinkedCount               = @($UnlinkedGPOs).count
+        Deactivated                 = @($DeactivatedGPOs).DisplayName -join "`n"
+        DeactivatedCreationTime     = @($DeactivatedGPOs).CreationTime -join "`n"
+        DeactivatedModificationTime = @($DeactivatedGPOs).ModificationTime -join "`n"
+        DeactivatedCount            = @($DeactivatedGPOs).count
+        LinkedButDeactivated        = @($LinkedButDeactivatedGPOs).DisplayName -join "`n"
+        LinkedButDeactivatedCount   = @($LinkedButDeactivatedGPOs).Count
     }
     
     return $UnlinkedGPODetails
