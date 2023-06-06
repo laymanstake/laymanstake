@@ -37,7 +37,7 @@ Function Get-ADTrustDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
     )
     
-    $trusts = Get-ADTrust -Filter * -Server $DomainName | Select-Object Source, Target, Direction, TrustType, Intraforest
+    $trusts = Get-ADTrust -Filter * -Server $DomainName -Properties Created, Modified, ForestTransitive | Select-Object Name, Source, Target, Created, Modified, Direction, TrustType, Intraforest, ForestTransitive
 
     $TrustDetails = @()
 
@@ -53,12 +53,16 @@ Function Get-ADTrustDetails {
         }        
 
         $TrustDetails += [PSCustomObject]@{
-            TrustSource    = $trust.Source
-            TrustTarget    = $trust.Target
-            TrustDirection = $trust.Direction
-            TrustType      = $trust.TrustType
-            Intraforest    = $trust.Intraforest
-            Stale          = $stale
+            TrustName        = $trust.Name
+            CreationDate     = $trust.Created
+            ModificationDate = $trust.Modified
+            TrustSource      = $trust.Source
+            TrustTarget      = $trust.Target
+            TrustDirection   = $trust.Direction
+            TrustType        = $trust.TrustType
+            Intraforest      = $trust.Intraforest
+            Foresttransitive = $trust.ForestTransitive
+            Stale            = $stale
         }
     }
     Return $TrustDetails
@@ -174,6 +178,7 @@ Function Get-ADGPODetails {
     return $UnlinkedGPODetails
 }
 
+# Returns the details of Applied Password Policy in the given domain
 Function Get-ADPasswordPolicy {
     [CmdletBinding()]
     Param(
@@ -255,6 +260,7 @@ Function Get-ADDomainDetails {
     return $DomainDetails    
 }
 
+# Returns the AD site details of the given domain
 Function Get-ADSiteDetails {
     [CmdletBinding()]
     Param(
@@ -272,6 +278,9 @@ Function Get-ADSiteDetails {
             $SiteDetails += New-Object PSObject -Property @{
                 DomainName                          = $DomainName
                 SiteName                            = $site.Name
+                SiteCreated                         = $Site.WhenCreated
+                SiteModified                        = $Site.WhenChanged
+                Subnets                             = ($site.subnets | Get-ADReplicationSubnet -Server $PDC | Select-Object Name).Name -join "`n"
                 DCinSite                            = "No DC in Site"
                 SiteLink                            = $link.Name
                 SiteLinkType                        = $link.InterSiteTransportProtocol
@@ -288,6 +297,9 @@ Function Get-ADSiteDetails {
                     $SiteDetails += New-Object PSObject -Property @{
                         DomainName                          = $DomainName
                         SiteName                            = $site.Name
+                        SiteCreated                         = $Site.WhenCreated
+                        SiteModified                        = $Site.WhenChanged
+                        Subnets                             = ($site.subnets | Get-ADReplicationSubnet -Server $PDC | Select-Object Name).Name -join "`n"
                         DCinSite                            = $dc.Name
                         SiteLink                            = $link.Name
                         SiteLinkType                        = $link.InterSiteTransportProtocol
@@ -301,12 +313,12 @@ Function Get-ADSiteDetails {
         }
     }
 
-    $SiteDetails = $SiteDetails | Select-Object DomainName, SiteName, SiteProtectedFromAccidentalDeletion, DC, SiteLink, SiteLinkType, SiteLinkCost, ReplicationInterval, LinkProtectedFromAccidentalDeletion
+    $SiteDetails = $SiteDetails | Select-Object DomainName, SiteName, SiteCreated, SiteModified, Subnets, SiteProtectedFromAccidentalDeletion, DCinSite, SiteLink, SiteLinkType, SiteLinkCost, ReplicationInterval, LinkProtectedFromAccidentalDeletion
     
     return $SiteDetails
 }
 
-
+# Returns the priviledged group details of the given domain
 Function Get-PrivGroupDetails {
     [CmdletBinding()]
     Param(
@@ -339,6 +351,7 @@ Function Get-PrivGroupDetails {
     return $PrivGroups
 }
 
+# Returns user summary details of the given domain
 Function Get-ADUserDetails {
     [CmdletBinding()]
     Param(
@@ -365,6 +378,7 @@ Function Get-ADUserDetails {
     return $UserDetails
 }
 
+# Returns Builtin Admin/Guest details of the given domain
 Function Get-BuiltInUserDetails {
     [CmdletBinding()]
     Param(
@@ -396,6 +410,7 @@ Function Get-BuiltInUserDetails {
     return $BuiltInUsers    
 }
 
+# Returns the Server OS sumamry of the given domain
 Function Get-DomainServerDetails {
     [CmdletBinding()]
     Param(
@@ -415,6 +430,7 @@ Function Get-DomainServerDetails {
     return $DomainServerDetails
 }
 
+# Returns the Client OS sumamry of the given domain
 Function Get-DomainClientDetails {
     [CmdletBinding()]
     Param(
@@ -584,7 +600,7 @@ Function Get-ADForestDetails {
         $ClientOSSummary = $ClientOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Client OS Summary</h2>"
     }
     $DomainSummary = $DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>"    
-    $SitesSummary = $SiteDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Sites Summary</h2>"    
+    $SitesSummary = ($SiteDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Sites Summary</h2>" ) -replace "`n", "<br>" -replace '<td>No DC in Site</td>', '<td bgcolor="red">No DC in Site</td>'
     $BuiltInUserSummary = $BuiltInUserDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>BuiltInUsers Summary</h2>"
     $UserSummary = $UserDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Users Summary</h2>"    
     $PrivGroupSummary = ($privGroupDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Priviledged groups Summary</h2>") -replace '<td>True</td>', '<td bgcolor="red">True</td>'
