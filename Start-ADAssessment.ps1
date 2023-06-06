@@ -227,9 +227,7 @@ Function Get-ADDomainDetails {
         }
     }
     
-    return $DomainDetails
-    <# $ServicesInfo = $ServicesInfo -replace '<td>Running</td>', '<td class="RunningStatus">Running</td>'
-    $ServicesInfo = $ServicesInfo -replace '<td>Stopped</td>', '<td class="StopStatus">Stopped</td>' #>
+    return $DomainDetails    
 }
 
 Function Get-PrivGroupDetails {
@@ -264,6 +262,33 @@ Function Get-PrivGroupDetails {
     
     return $PrivGroups
 }
+
+Function Get-ADUserDetails {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+    )
+
+    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+
+    $AllUsers = Get-ADUser -Filter * -Server $PDC -Properties SamAccountName, Enabled, whenCreated, PasswordLastSet, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, LastLogonDate, LockedOut
+
+    $UserDetails = [PSCustomObject]@{
+        DomainName           = $DomainName
+        Users                = $AllUsers.count
+        RecentlyCreated      = @($AllUsers | Where-Object { $_.whenCreated -ge (Get-Date).AddDays(-30) }).count
+        ChangeOnNextLogon    = @($AllUsers | Where-Object { ($null -eq $_.PasswordLastSet) -and ($_.PasswordNotRequired -eq $false) }).count
+        PasswordExpired      = @($AllUsers | Where-Object { $_.PasswordExpired -eq $true }).count
+        Disabled             = @($AllUsers | Where-Object { $_.Enabled -eq $false }).count
+        LockedOut            = @($AllUsers | Where-Object { $_.LockedOut -eq $true }).count        
+        AccountExpired       = @($AllUsers | Where-Object { $_.AccountExpirationDate -lt (Get-Date) -AND $null -ne $_.AccountExpirationDate }).count
+        Inactive             = @($AllUsers | Where-Object { $_.LastLogonDate -lt (Get-Date).AddDays(-30) -AND $null -ne $_.LastLogonDate }).count
+        PasswordNeverExpires = @($AllUsers | Where-Object { $_.PasswordNeverExpires -eq $true }).count        
+    }
+
+    return $UserDetails
+}
+
 
 Function Get-ADForestDetails {
     [CmdletBinding()]
@@ -375,11 +400,13 @@ Function Get-ADForestDetails {
     $EmptyOUDetails = @()
     $PKIDetails = @()
     $GPODetails = @()
+    $UserDetails = @()
 
     ForEach ($domain in $allDomains) {        
         $TrustDetails += Get-ADTrustDetails -DomainName $domain        
         $DomainDetails += Get-ADDomainDetails -DomainName $domain
         $privGroupDetails += Get-PrivGroupDetails -DomainName $domain        
+        $UserDetails += Get-ADUserDetails -DomainName $domain
         $PKIDetails += Get-PKIDetails -DomainName $domain
         $EmptyOUDetails += Get-EmptyOUDetails -DomainName $domain
         $GPODetails += Get-ADGPODetails -DomainName $domain        
@@ -396,11 +423,12 @@ Function Get-ADForestDetails {
         $PKISummary = $PKIDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Certificate servers Summary</h2>"
     }
     $DomainSummary = $DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>"    
+    $UserSummary = $UserDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Users Summary</h2>"    
     $PrivGroupSummary = ($privGroupDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Priviledged groups Summary</h2>") -replace '<td>True</td>', '<td bgcolor="red">True</td>'
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
     $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $PrivGroupSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $PrivGroupSummary $UserSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath    
 }
 
