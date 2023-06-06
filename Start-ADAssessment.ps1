@@ -80,8 +80,7 @@ Function Get-PKIDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
     )
 
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
-    
+    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator    
     $PKI = Get-ADObject -Filter { objectClass -eq "pKIEnrollmentService" } -Server $PDC -SearchBase "CN=Enrollment Services,CN=Public Key Services,CN=Services,$((Get-ADRootDSE).ConfigurationNamingContext)"  -Properties DisplayName, DnsHostName | Select-Object DisplayName, DnsHostName, @{l = "OperatingSystem"; e = { (Get-ADComputer $_.DnsHostName -Properties OperatingSystem).OperatingSystem } }, @{l = "IPv4Address"; e = { ([System.Net.Dns]::GetHostAddresses($_.DnsHostName) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n" } }
 
     Return $PKI
@@ -174,6 +173,30 @@ Function Get-ADGPODetails {
     return $UnlinkedGPODetails
 }
 
+Function Get-ADPasswordPolicy {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+    )
+
+    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $PwdPolicy = Get-ADDefaultDomainPasswordPolicy -Server $PDC
+
+    $DefaultPasswordPolicy = [PSCustomObject]@{
+        DomainName           = $DomainName
+        MinPwdAge            = [string]($PwdPolicy.MinPasswordAge.days) + " Day(s)"
+        MaxPwdAge            = [string]($PwdPolicy.MaxPasswordAge.days) + " Day(s)"
+        MinPwdLength         = $PwdPolicy.MinPasswordLength
+        LockoutThreshold     = $PwdPolicy.LockoutThreshold
+        LockoutDuration      = $PwdPolicy.LockoutDuration
+        ComplexityEnabled    = $PwdPolicy.ComplexityEnabled
+        ReversibleEncryption = $PwdPolicy.ReversibleEncryptionEnabled
+        PasswordHistoryCount = $PwdPolicy.PasswordHistoryCount        
+    }
+
+    return $DefaultPasswordPolicy
+}
+
 # Returns the details of the given domain
 Function Get-ADDomainDetails {
     [CmdletBinding()]
@@ -255,7 +278,7 @@ Function Get-PrivGroupDetails {
             DomainName        = $DomainName
             OriginalGroupName = $groupSID[0]
             GroupName         = (Get-ADGroup -Server $PDC -Identity $GroupSID[1]).Name
-            MemberCount       = @(Get-ADGroup -Server $PDC -Identity $GroupSID[1] | Get-ADGroupMember -Recursive).count
+            MemberCount       = @(Get-ADGroup -Server $PDC -Identity $GroupSID[1] | Get-ADGroupMember -Recursive -Server $PDC).count
             IsRenamed         = $groupSID[0] -ne (Get-ADGroup -Server $PDC -Identity $GroupSID[1]).Name
         }
     }
@@ -289,6 +312,78 @@ Function Get-ADUserDetails {
     return $UserDetails
 }
 
+Function Get-BuiltInUserDetails {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+    )
+
+    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $domainSID = (Get-ADDomain $DomainName -server $PDC).domainSID.Value
+    $BuiltInUserSIDs = @(@("Administrator", ($domainSID + "-500")), @("Guest", ($domainSID + "-501")))
+
+    $BuiltInUsers = @()
+
+    ForEach ($UserSID in $BuiltInUserSIDs ) {
+        $User = Get-ADUser -Server $PDC -Identity $UserSID[1] -Properties SamAccountName, WhenCreated, LastLogonDate, Enabled, LastBadPasswordAttempt, PasswordLastSet
+        
+        $BuiltInUsers += [PSCustomObject]@{
+            DomainName             = $DomainName
+            OriginalUserName       = $UserSID[0]
+            UserName               = $user.SamAccountName
+            Enabled                = $user.Enabled
+            WhenCreated            = $user.WhenCreated
+            LastLogonDate          = $User.LastLogonDate
+            PasswordLastSet        = $User.PasswordLastSet
+            LastBadPasswordAttempt = $User.LastBadPasswordAttempt
+            IsRenamed              = $UserSID[0] -ne $user.SamAccountName
+        }
+    }
+    
+    return $BuiltInUsers    
+}
+
+Function Get-DomainServerDetails {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+    )
+
+    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+
+    $OSs = Get-ADComputer -Filter { OperatingSystem -Like "*Server*" } -Properties OperatingSystem -Server $PDC | Group-Object OperatingSystem | Select-Object Name, Count
+    ForEach ($OS in $OSs) {
+        $DomainServerDetails += [PSCustomObject]@{
+            DomainName = $DomainName
+            OSName     = $OS.Name
+            Count      = $OS.count
+        }
+    }
+    return $DomainServerDetails
+}
+
+Function Get-DomainClientDetails {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+    )
+
+    $DomainClientDetails = @()
+    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+
+    $OSs = Get-ADComputer -Filter { OperatingSystem -NotLike "*Server*" } -Properties OperatingSystem -Server $PDC | Group-Object OperatingSystem | Select-Object Name, Count
+    If ($OSs.count -gt 0) {
+        ForEach ($OS in $OSs) {
+            $DomainClientDetails += [PSCustomObject]@{
+                DomainName = $DomainName
+                OSName     = $OS.Name
+                Count      = $OS.count
+            }
+        }
+    }
+
+    return $DomainClientDetails
+}
 
 Function Get-ADForestDetails {
     [CmdletBinding()]
@@ -395,18 +490,26 @@ Function Get-ADForestDetails {
     $ForestPrivGroupsSummary = ($ForestPrivGroups | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Forest-wide Priviledged groups Summary</h2>") -replace "`n", "<br>"
 
     $TrustDetails = @()
-    $DomainDetails = @()
+    $DomainDetails = @()    
     $privGroupDetails = @()
-    $EmptyOUDetails = @()
-    $PKIDetails = @()
-    $GPODetails = @()
     $UserDetails = @()
+    $BuiltInUserDetails = @()
+    $PasswordPolicyDetails = @()
+    $ServerOSDetails = @()
+    $ClientOSDetails = @()
+    $PKIDetails = @()
+    $EmptyOUDetails = @()
+    $GPODetails = @()
 
     ForEach ($domain in $allDomains) {        
         $TrustDetails += Get-ADTrustDetails -DomainName $domain        
         $DomainDetails += Get-ADDomainDetails -DomainName $domain
         $privGroupDetails += Get-PrivGroupDetails -DomainName $domain        
         $UserDetails += Get-ADUserDetails -DomainName $domain
+        $BuiltInUserDetails += Get-BuiltInUserDetails -DomainName $domain
+        $PasswordPolicyDetails += Get-ADPasswordPolicy -DomainName $domain
+        $ServerOSDetails += Get-DomainServerDetails -DomainName $domain
+        $ClientOSDetails += Get-DomainClientDetails -DomainName $domain
         $PKIDetails += Get-PKIDetails -DomainName $domain
         $EmptyOUDetails += Get-EmptyOUDetails -DomainName $domain
         $GPODetails += Get-ADGPODetails -DomainName $domain        
@@ -422,13 +525,19 @@ Function Get-ADForestDetails {
     If ($PKIDetails) {
         $PKISummary = $PKIDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Certificate servers Summary</h2>"
     }
+    If ($ClientOSDetails) {        
+        $ClientOSSummary = $ClientOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Client OS Summary</h2>"
+    }
     $DomainSummary = $DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>"    
+    $BuiltInUserSummary = $BuiltInUserDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>BuiltInUsers Summary</h2>"
     $UserSummary = $UserDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Users Summary</h2>"    
     $PrivGroupSummary = ($privGroupDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Priviledged groups Summary</h2>") -replace '<td>True</td>', '<td bgcolor="red">True</td>'
+    $PwdPolicySummary = $PasswordPolicyDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Password Policy Summary</h2>"
+    $ServerOSSummary = $ServerOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Server OS Summary</h2>"
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
     $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $PrivGroupSummary $UserSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $PwdPolicySummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath    
 }
 
