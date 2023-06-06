@@ -1,10 +1,11 @@
 #Requires -RunAsAdministrator
 #Requires -Version 3.0
 #Requires -Modules ActiveDirectory, DHCPServer, GroupPolicy
-# Author : Nitish Kumar
-# Performs Active Directory Forest Assessment
-# version 1.0 | 06/06/2023 Initial version
-# The script is kept as much modular as possible so that functions can be modified or added without altering the entire script
+<#  Author : Nitish Kumar
+    Performs Active Directory Forest Assessment
+    version 1.0 | 06/06/2023 Initial version
+    The script is kept as much modular as possible so that functions can be modified or added without altering the entire script 
+#>
 
 Import-Module ActiveDirectory
 Import-Module DHCPServer
@@ -227,6 +228,46 @@ Function Get-ADPasswordPolicy {
     return $DefaultPasswordPolicy
 }
 
+Function Get-FineGrainedPasswordPolicy {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+    )
+
+    $FGPwdPolicyDetails = @()
+    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $DomainFL = (Get-ADDomain -Identity $DomainName).DomainMode
+    
+    if ( $DomainFL -in ("Windows2008Domain", "Windows2008R2Domain", "Windows2012Domain", "Windows2012R2Domain", "Windows2016Domain")) {		
+        $FGPwdPolicy = Get-ADFineGrainedPasswordPolicy -Filter * -Server $PDC
+
+        ForEach ($FGPP in $FGPwdPolicy) {
+            $Obj = $FGPP.AppliesTo | ForEach-Object { Get-ADObject $_ -Server $PDC | Select-Object DistinguishedName , Name, ObjectClass } 
+            $Users = $Obj | Where-Object { $_.ObjectClass -eq "User" }
+            $UserList = $Users | ForEach-Object { Get-ADUser -Identity $_.DistinguishedName -Server $PDC }
+            $Groups = $Obj | Where-Object { $_.ObjectClass -eq "Group" }
+            $GroupList = $Groups | ForEach-Object { Get-ADGroup -Identity $_.DistinguishedName -Server $PDC }
+            
+            $FGPwdPolicyDetails += [PSCustomObject]@{
+                DomainName           = $DomainName
+                PolicyName           = $FGPP.Name
+                MinPwdAge            = [string]($FGPP.MinPasswordAge.days) + " Day(s)"
+                MaxPwdAge            = [string]($FGPP.MaxPasswordAge.days) + " Day(s)"
+                MinPwdLength         = $FGPP.MinPasswordLength
+                LockoutThreshold     = $FGPP.LockoutThreshold
+                LockoutDuration      = $FGPP.LockoutDuration
+                ComplexityEnabled    = $FGPP.ComplexityEnabled
+                ReversibleEncryption = $FGPP.ReversibleEncryptionEnabled
+                PasswordHistoryCount = $FGPP.PasswordHistoryCount        
+                AppliedonUsers       = $UserList.Name -join "`n"
+                AppliedonGroups      = $GroupList.Name -join "`n"
+            }
+        }
+    }
+
+    return $FGPwdPolicyDetails
+}
+
 # Returns the details of the given domain
 Function Get-ADDomainDetails {
     [CmdletBinding()]
@@ -236,11 +277,11 @@ Function Get-ADDomainDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)]$ReportPath,
         [Parameter(ValueFromPipeline = $true, mandatory = $false)]$CSSHeader = $header
     )
-    
+
     $UndesiredFeatures = ("ADFS-Federation", "DHCP", "Telnet-Client", "WDS", "Web-Server", "Web-Application-Proxy")
 
     $dcs = Get-ADDomainController -Filter * -Server $DomainName
-        
+    
     $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
 
     if ((Get-ADObject -Server $PDC -SearchBase (Get-ADDomainController -Identity $PDC -Server $PDC).ComputerObjectDN -Filter { name -like "SYSVOL*" } -Properties replPropertyMetaData).ReplPropertyMetadata.count -gt 0) {
@@ -263,24 +304,25 @@ Function Get-ADDomainDetails {
             $Results = invoke-command -ComputerName $dc -ScriptBlock { (Get-SmbServerConfiguration | Select-Object EnableSMB1Protocol), (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\') }
 
             $DomainDetails += [PSCustomObject]@{
-                Domain            = $domain
-                DCName            = $dc.Name
-                Site              = $dc.site
-                OSVersion         = $dc.OperatingSystem
-                IPAddress         = $dc.IPv4Address
-                FSMORoles         = (Get-ADDomainController -Identity $dc -Server $dc | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
-                SysvolType        = $sysvolStatus
-                FSR2DFSRStatus    = $FSR2DFSRStatus
-                SMB1Status        = ($Results[0]).EnableSMB1Protocol
-                Firewall          = (Get-Service -name MpsSvc -ComputerName $dc).Status
-                NetlogonParameter = ($Results[1]).vulnerablechannelallowlist
-                ReadOnly          = $dc.IsReadOnly
-                IsVirtual         = ((Get-CimInstance Win32_ComputerSystem -ComputerName $dc).model).Contains("Virtual")
-                UndesiredFeatures = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject  (Get-WindowsFeature -ComputerName $dc | Where-Object Installed).Name -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
+                Domain              = $domain
+                DomainFunctionLevel = (Get-ADDomain -Identity $DomainName).DomainMode
+                DCName              = $dc.Name
+                Site                = $dc.site
+                OSVersion           = $dc.OperatingSystem
+                IPAddress           = $dc.IPv4Address
+                FSMORoles           = (Get-ADDomainController -Identity $dc -Server $dc | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
+                SysvolType          = $sysvolStatus
+                FSR2DFSRStatus      = $FSR2DFSRStatus
+                SMB1Status          = ($Results[0]).EnableSMB1Protocol
+                Firewall            = (Get-Service -name MpsSvc -ComputerName $dc).Status
+                NetlogonParameter   = ($Results[1]).vulnerablechannelallowlist
+                ReadOnly            = $dc.IsReadOnly
+                IsVirtual           = ((Get-CimInstance Win32_ComputerSystem -ComputerName $dc).model).Contains("Virtual")
+                UndesiredFeatures   = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject  (Get-WindowsFeature -ComputerName $dc | Where-Object Installed).Name -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
             }
         }
     }
-    
+
     return $DomainDetails    
 }
 
@@ -295,7 +337,7 @@ Function Get-ADSiteDetails {
 
     $sites = Get-ADReplicationSite -Filter * -Server $PDC -Properties WhenCreated, WhenChanged, ProtectedFromAccidentalDeletion, Subnets
     $SiteDetails = @()
-    
+
     foreach ($site in $sites) {
         $dcs = @(Get-ADDomainController -Filter { Site -eq $site.Name } -Server $PDC)
         if ($dcs.Count -eq 0) {
@@ -338,7 +380,7 @@ Function Get-ADSiteDetails {
     }
 
     $SiteDetails = $SiteDetails | Select-Object DomainName, SiteName, SiteCreated, SiteModified, Subnets, SiteProtectedFromAccidentalDeletion, DCinSite, SiteLink, SiteLinkType, SiteLinkCost, ReplicationInterval, LinkProtectedFromAccidentalDeletion
-    
+
     return $SiteDetails
 }
 
@@ -371,7 +413,7 @@ Function Get-PrivGroupDetails {
             IsRenamed         = $groupSID[0] -ne (Get-ADGroup -Server $PDC -Identity $GroupSID[1]).Name
         }
     }
-    
+
     return $PrivGroups
 }
 
@@ -417,7 +459,7 @@ Function Get-BuiltInUserDetails {
 
     ForEach ($UserSID in $BuiltInUserSIDs ) {
         $User = Get-ADUser -Server $PDC -Identity $UserSID[1] -Properties SamAccountName, WhenCreated, LastLogonDate, Enabled, LastBadPasswordAttempt, PasswordLastSet
-        
+    
         $BuiltInUsers += [PSCustomObject]@{
             DomainName             = $DomainName
             OriginalUserName       = $UserSID[0]
@@ -430,7 +472,7 @@ Function Get-BuiltInUserDetails {
             IsRenamed              = $UserSID[0] -ne $user.SamAccountName
         }
     }
-    
+
     return $BuiltInUsers    
 }
 
@@ -503,13 +545,13 @@ Function Get-ADForestDetails {
     $FSMODomainNaming = $ForestInfo.DomainNamingMaster
     $FSMOSchema = $ForestInfo.SchemaMaster
     $forestDomainSID = (Get-ADDomain $ForestName).domainSID.Value    
-    
+
     $SchemaPartition = $ForestInfo.PartitionsContainer.Replace("CN=Partitions", "CN=Schema")
     $SchemaVersion = Get-ADObject -Server $forest -Identity $SchemaPartition -Properties * | Select-Object objectVersion
 
     <#     $forestDN = $ForestInfo.PartitionsContainer.Replace("CN=Partitions,CN=Configuration,", "") #>
     $configPartition = $ForestInfo.PartitionsContainer.Replace("CN=Partitions,", "")
-    
+
     # Check if AD Recycle Bin support is enabled
     if ( $forestFL -in ("Windows2008R2Forest", "Windows2012Forest", "Windows2012R2Forest", "Windows2016Forest")) {
         $ADR = (Get-ADOptionalFeature 'Recycle Bin Feature').EnabledScopes.count
@@ -543,6 +585,7 @@ Function Get-ADForestDetails {
         Windows2008R2Forest { $ForestFunctionalLevel = "Windows Server 2008 R2" }
         Windows2012Forest { $ForestFunctionalLevel = "Windows Server 2012" }
         Windows2012R2Forest { $ForestFunctionalLevel = "Windows Server 2012 R2" }
+        Windows2016Forest { $ForestFunctionalLevel = "Windows Server 2016" }
         default { $ForestFunctionalLevel = "Unknown Forest Functional Level: $forestFL" }
     }
 
@@ -589,6 +632,7 @@ Function Get-ADForestDetails {
     $UserDetails = @()
     $BuiltInUserDetails = @()
     $PasswordPolicyDetails = @()
+    $FGPwdPolicyDetails = @()
     $ServerOSDetails = @()
     $ClientOSDetails = @()
     $PKIDetails = @()
@@ -603,6 +647,8 @@ Function Get-ADForestDetails {
         $UserDetails += Get-ADUserDetails -DomainName $domain
         $BuiltInUserDetails += Get-BuiltInUserDetails -DomainName $domain
         $PasswordPolicyDetails += Get-ADPasswordPolicy -DomainName $domain
+        Get-FineGrainedPasswordPolicy -DomainName $domain
+        $FGPwdPolicyDetails += Get-FineGrainedPasswordPolicy -DomainName $domain
         $ServerOSDetails += Get-DomainServerDetails -DomainName $domain
         $ClientOSDetails += Get-DomainClientDetails -DomainName $domain
         $PKIDetails += Get-PKIDetails -DomainName $domain
@@ -623,6 +669,10 @@ Function Get-ADForestDetails {
     If ($ClientOSDetails) {        
         $ClientOSSummary = $ClientOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Client OS Summary</h2>"
     }
+    If ($FGPwdPolicyDetails) {
+        $FGPwdPolicySummary = ($FGPwdPolicyDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Fine Grained Password Policy Summary</h2>") -replace "`n", "<br>"
+    }
+
     $DomainSummary = $DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>"    
     $SitesSummary = ($SiteDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Sites Summary</h2>" ) -replace "`n", "<br>" -replace '<td>No DC in Site</td>', '<td bgcolor="red">No DC in Site</td>'
     $BuiltInUserSummary = $BuiltInUserDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>BuiltInUsers Summary</h2>"
@@ -633,7 +683,7 @@ Function Get-ADForestDetails {
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
     $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $PwdPolicySummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $PwdPolicySummary $FGPwdPolicySummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath    
 }
 
