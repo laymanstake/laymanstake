@@ -113,6 +113,57 @@ Function Get-ADDNSDetails {
     }
 }
 
+# Return the group members recusrively from the given domain only, would skip foreign ones
+Function Get-ADGroupMemberRecursive {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$GroupName
+    )
+    
+    $Domain = (Get-ADDomain -Identity $DomainName)
+    $PDC = $Domain.PDCEmulator    
+    $members = (Get-ADGroup -Identity $GroupName -Server $PDC -Properties Members).members
+
+    $membersRecursive = @()
+    foreach ($member in $members) {
+        If ($member.Substring($member.IndexOf("DC=")) -eq $Domain.DistinguishedName) {
+            if ((Get-ADObject -identity $member -server $PDC).Objectclass -eq "group" ) { 
+                $membersRecursive += Get-ADGroupMemberRecursive -GroupName $member -DomainName $Domain.DNSRoot
+            }
+            else {
+                $membersRecursive += Get-ADUser -identity $member -Server $PDC | Select-Object Name
+            }
+        }
+    }
+    return $membersRecursive    
+}
+
+Function Get-AdminCountDetails {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+    )
+    
+    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $protectedGroups = (Get-ADGroup -Filter * -Server $PDC -properties adminCount | Where-Object { $_.adminCount -eq 1 }).Name
+
+    $ProtectedUsers = ($protectedGroups | ForEach-Object { Get-ADGroupMemberRecursive -GroupName $_ -DomainName $DomainName } | Sort-Object Name -Unique).Name
+    $UserWithAdminCount = (Get-ADUser -Filter * -Server $PDC -Properties AdminCount | Where-Object { $_.adminCount -eq 1 }).Name
+    $UndesiredAdminCount = (Compare-Object -ReferenceObject $UserWithAdminCount -DifferenceObject $ProtectedUsers | Where-Object { $_.SideIndicator -eq '<=' -AND $_.InputObject -ne "krbtgt" }).InputObject
+
+    $AdminCountDetails = [PSCustomObject]@{
+        DomainName          = $DomainName
+        ProtectedUsersCount = $ProtectedUsers.Count
+        UserWithAdminCount  = $UserWithAdminCount.Count - 1
+        UndesiredAdminCount = $UndesiredAdminCount.Count
+        UsersToClear        = $UndesiredAdminCount -join "`n"
+    }
+
+    return $AdminCountDetails
+}
+
+
 # Return the details of DHCP Servers
 Function Get-ADDHCPDetails {  
     
@@ -633,6 +684,7 @@ Function Get-ADForestDetails {
     $privGroupDetails = @()
     $UserDetails = @()
     $BuiltInUserDetails = @()
+    $UndesiredAdminCount = @()
     $PasswordPolicyDetails = @()
     $FGPwdPolicyDetails = @()
     $ServerOSDetails = @()
@@ -648,8 +700,8 @@ Function Get-ADForestDetails {
         $privGroupDetails += Get-PrivGroupDetails -DomainName $domain        
         $UserDetails += Get-ADUserDetails -DomainName $domain
         $BuiltInUserDetails += Get-BuiltInUserDetails -DomainName $domain
-        $PasswordPolicyDetails += Get-ADPasswordPolicy -DomainName $domain
-        Get-FineGrainedPasswordPolicy -DomainName $domain
+        $UndesiredAdminCount += Get-AdminCountDetails -DomainName $domain
+        $PasswordPolicyDetails += Get-ADPasswordPolicy -DomainName $domain        
         $FGPwdPolicyDetails += Get-FineGrainedPasswordPolicy -DomainName $domain
         $ServerOSDetails += Get-DomainServerDetails -DomainName $domain
         $ClientOSDetails += Get-DomainClientDetails -DomainName $domain
@@ -674,6 +726,9 @@ Function Get-ADForestDetails {
     If ($FGPwdPolicyDetails) {
         $FGPwdPolicySummary = ($FGPwdPolicyDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Fine Grained Password Policy Summary</h2>") -replace "`n", "<br>"
     }
+    If ($UndesiredAdminCount) {
+        $UndesiredAdminCountSummary = ($UndesiredAdminCount | ConvertTo-Html -As Table  -Fragment -PreContent "<h2> Undesired AdminCount atribute user Summary</h2>") -replace "`n", "<br>"
+    }
 
     $DomainSummary = $DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>"    
     $SitesSummary = ($SiteDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Sites Summary</h2>" ) -replace "`n", "<br>" -replace '<td>No DC in Site</td>', '<td bgcolor="red">No DC in Site</td>'
@@ -685,7 +740,7 @@ Function Get-ADForestDetails {
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
     $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $PwdPolicySummary $FGPwdPolicySummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath    
 }
 
