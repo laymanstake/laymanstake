@@ -1,7 +1,9 @@
 #Requires -RunAsAdministrator
 #Requires -Version 3.0
 #Requires -Modules ActiveDirectory, DHCPServer, GroupPolicy
-<#  Author : Nitish Kumar
+
+<#  
+    Author : Nitish Kumar
     Performs Active Directory Forest Assessment
     version 1.0 | 06/06/2023 Initial version
     The script is kept as much modular as possible so that functions can be modified or added without altering the entire script 
@@ -33,6 +35,7 @@ $header = @"
 If ($logopath) {
     $header = $header + "<img src=$logopath alt='Company logo' width='150' height='150' align='right'>"
 }
+
 
 # Numbe of functions to get the details of the environment
 
@@ -83,6 +86,19 @@ Function Get-ADFSDetails {
     #$PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
 }
 
+# Returns the details of the PKI servers
+Function Get-PKIDetails {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+    )
+
+    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator    
+    $PKI = Get-ADObject -Filter { objectClass -eq "pKIEnrollmentService" } -Server $PDC -SearchBase "CN=Enrollment Services,CN=Public Key Services,CN=Services,$((Get-ADRootDSE).ConfigurationNamingContext)"  -Properties DisplayName, DnsHostName | Select-Object DisplayName, DnsHostName, @{l = "OperatingSystem"; e = { (Get-ADComputer $_.DnsHostName -Properties OperatingSystem).OperatingSystem } }, @{l = "IPv4Address"; e = { ([System.Net.Dns]::GetHostAddresses($_.DnsHostName) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n" } }
+
+    Return $PKI
+}
+
 Function Get-ADDNSDetails {
     [CmdletBinding()]
     Param(
@@ -95,19 +111,6 @@ Function Get-ADDNSDetails {
     ForEach ($DNSServer in $DNSServers) {
         
     }
-}
-
-# Returns the details of the PKI servers
-Function Get-PKIDetails {
-    [CmdletBinding()]
-    Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
-    )
-
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator    
-    $PKI = Get-ADObject -Filter { objectClass -eq "pKIEnrollmentService" } -Server $PDC -SearchBase "CN=Enrollment Services,CN=Public Key Services,CN=Services,$((Get-ADRootDSE).ConfigurationNamingContext)"  -Properties DisplayName, DnsHostName | Select-Object DisplayName, DnsHostName, @{l = "OperatingSystem"; e = { (Get-ADComputer $_.DnsHostName -Properties OperatingSystem).OperatingSystem } }, @{l = "IPv4Address"; e = { ([System.Net.Dns]::GetHostAddresses($_.DnsHostName) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n" } }
-
-    Return $PKI
 }
 
 # Return the details of DHCP Servers
@@ -227,7 +230,6 @@ Function Get-ADPasswordPolicy {
     return $DefaultPasswordPolicy
 }
 
-# Returns the details of Fine Grained Password Policies in the given domain
 Function Get-FineGrainedPasswordPolicy {
     [CmdletBinding()]
     Param(
@@ -520,7 +522,6 @@ Function Get-DomainClientDetails {
     return $DomainClientDetails
 }
 
-# The main function which collates the information from entire forest and generates HTML report
 Function Get-ADForestDetails {
     [CmdletBinding()]
     Param(
