@@ -1,6 +1,6 @@
 #Requires -RunAsAdministrator
 #Requires -Version 3.0
-#Requires -Modules ActiveDirectory, DHCPServer, GroupPolicy
+#Requires -Modules ActiveDirectory, DHCPServer, GroupPolicy, DnsServer
 
 <#  
     Author : Nitish Kumar
@@ -12,6 +12,7 @@
 Import-Module ActiveDirectory
 Import-Module DHCPServer
 Import-Module GroupPolicy
+Import-Module DnsServer
 
 # Output formating options
 $logopath = "https://camo.githubusercontent.com/239d9de795c471d44ad89783ec7dc03a76f5c0d60d00e457c181b6e95c6950b6/68747470733a2f2f6e69746973686b756d61722e66696c65732e776f726470726573732e636f6d2f323032322f31302f63726f707065642d696d675f32303232303732335f3039343534372d72656d6f766562672d707265766965772e706e67"
@@ -97,18 +98,33 @@ Function Get-PKIDetails {
     Return $PKI
 }
 
+# Returns the details of the DNS servers in the given domain
 Function Get-ADDNSDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
     )
 
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
-    $DNSServers = Resolve-DnsName $DomainName -type ns -Server $PDC | Where-Object { $_.type -eq "A" } | Select-Object Name, IP4Address
+    $DNSServerDetails = @()
+    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator    
+    
+    $DNSServers = (Get-ADDomainController -Filter * -server $PDC) | Where-Object { (Get-WindowsFeature -ComputerName $_.name -Name DNS ) } | Select-Object Name, IPv4Address
 
     ForEach ($DNSServer in $DNSServers) {
-        
+        $Scavenging = Get-DnsServerScavenging -ComputerName $DNSServer.Name 
+        $DNSServerDetails += [PSCustomObject]@{
+            ServerName         = $DNSServer.Name
+            IPAddress          = $DNSServer.IPv4Address
+            OperatingSystem    = (Get-ADComputer $DNSServer.Name -Properties OperatingSystem -Server $PDC).OperatingSystem
+            ScanvengingState   = $Scavenging.ScavengingState
+            ScavengingInterval = $Scavenging.ScavengingInterval
+            NoRefreshInterval  = $Scavenging.NoRefreshInterval
+            RefreshInterval    = $Scavenging.RefreshInterval
+            LastScavengeTime   = $Scavenging.LastScavengeTime
+        }        
     }
+
+    return $DNSServerDetails
 }
 
 # Return the group members recusrively from the given domain only, would skip foreign ones
@@ -755,6 +771,7 @@ Function Get-ADForestDetails {
     $ServerOSDetails = @()
     $ClientOSDetails = @()
     $PKIDetails = @()
+    $DNSServerDetails = @()
     $EmptyOUDetails = @()
     $GPODetails = @()
 
@@ -773,6 +790,7 @@ Function Get-ADForestDetails {
         $ServerOSDetails += Get-DomainServerDetails -DomainName $domain
         $ClientOSDetails += Get-DomainClientDetails -DomainName $domain
         $PKIDetails += Get-PKIDetails -DomainName $domain
+        $DNSServerDetails += Get-ADDNSDetails -DomainName $domain
         $EmptyOUDetails += Get-EmptyOUDetails -DomainName $domain
         $GPODetails += Get-ADGPODetails -DomainName $domain        
     }
@@ -800,7 +818,8 @@ Function Get-ADForestDetails {
         $ObjectsToCleanSummary = ($ObjectsToClean | ConvertTo-Html -As Table  -Fragment -PreContent "<h2> Orphaned and Lingering objects Summary</h2>") -replace "`n", "<br>"
     }
 
-    $DomainSummary = $DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>"    
+    $DomainSummary = $DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>"
+    $DNSSummary = $DNSServerDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Servers Summary</h2>"
     $SitesSummary = ($SiteDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Sites Summary</h2>" ) -replace "`n", "<br>" -replace '<td>No DC in Site</td>', '<td bgcolor="red">No DC in Site</td>'
     $BuiltInUserSummary = $BuiltInUserDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>BuiltInUsers Summary</h2>"
     $UserSummary = $UserDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Users Summary</h2>"    
@@ -811,7 +830,7 @@ Function Get-ADForestDetails {
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
     $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $DNSSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath    
 }
 
