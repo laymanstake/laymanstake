@@ -36,9 +36,7 @@ If ($logopath) {
     $header = $header + "<img src=$logopath alt='Company logo' width='150' height='150' align='right'>"
 }
 
-
 # Numbe of functions to get the details of the environment
-
 # Returns the details of AD trusts in the given domain
 Function Get-ADTrustDetails {
     [CmdletBinding()]
@@ -139,6 +137,7 @@ Function Get-ADGroupMemberRecursive {
     return $membersRecursive    
 }
 
+# Return the users with adminCount
 Function Get-AdminCountDetails {
     [CmdletBinding()]
     Param(
@@ -220,6 +219,30 @@ Function Get-EmptyOUDetails {
     return $EmptyOUDetails
 }
 
+# Returns the details of orphaned and lingering objects from given domain
+Function Get-ADObjectsToClean {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+    )
+
+    $ObjectsToClean = @()
+    $Domain = Get-ADDomain -Identity $DomainName
+    $PDC = $Domain.PDCEmulator
+    $orphanedObj = Get-ADObject -Filter * -SearchBase "cn=LostAndFound,$($Domain.DistinguishedName)" -SearchScope OneLevel -Server $PDC    
+    $lingConfReplObj = Get-ADObject -LDAPFilter "(cn=*\0ACNF:*)" -SearchBase $Domain.DistinguishedName -SearchScope SubTree -Server $PDC
+
+    $ObjectsToClean = [PSCustomObject]@{
+        Domain               = $domainname        
+        OrphanedObjects      = $orphanedObj.DistinguishedName -join "`n"
+        OrphanedObjectCount  = $orphanedObj.Name.count
+        LingeringObjects     = $lingConfReplObj.DistinguishedName -join "`n"
+        LingeringObjectCount = $lingConfReplObj.Name.count        
+    }
+    
+    return $ObjectsToClean
+}
+
 # Returns the details of unlinked GPOs in the given domain
 Function Get-ADGPODetails {
     [CmdletBinding()]
@@ -280,6 +303,7 @@ Function Get-ADPasswordPolicy {
     return $DefaultPasswordPolicy
 }
 
+# Returns the details of Fine grained Password Policy in the given domain
 Function Get-FineGrainedPasswordPolicy {
     [CmdletBinding()]
     Param(
@@ -469,6 +493,7 @@ Function Get-PrivGroupDetails {
     return $PrivGroups
 }
 
+# Returns the group details of the given domain
 Function Get-ADGroupDetails {
     [CmdletBinding()]
     Param(
@@ -610,6 +635,7 @@ Function Get-DomainClientDetails {
     return $DomainClientDetails
 }
 
+# The main function to perform assessment of AD Forest and produce results as html file
 Function Get-ADForestDetails {
     [CmdletBinding()]
     Param(
@@ -725,6 +751,7 @@ Function Get-ADForestDetails {
     $UndesiredAdminCount = @()
     $PasswordPolicyDetails = @()
     $FGPwdPolicyDetails = @()
+    $ObjectsToClean = @()
     $ServerOSDetails = @()
     $ClientOSDetails = @()
     $PKIDetails = @()
@@ -742,6 +769,7 @@ Function Get-ADForestDetails {
         $UndesiredAdminCount += Get-AdminCountDetails -DomainName $domain
         $PasswordPolicyDetails += Get-ADPasswordPolicy -DomainName $domain        
         $FGPwdPolicyDetails += Get-FineGrainedPasswordPolicy -DomainName $domain
+        $ObjectsToClean += Get-ADObjectsToClean -DomainName $domain
         $ServerOSDetails += Get-DomainServerDetails -DomainName $domain
         $ClientOSDetails += Get-DomainClientDetails -DomainName $domain
         $PKIDetails += Get-PKIDetails -DomainName $domain
@@ -768,6 +796,9 @@ Function Get-ADForestDetails {
     If ($UndesiredAdminCount) {
         $UndesiredAdminCountSummary = ($UndesiredAdminCount | ConvertTo-Html -As Table  -Fragment -PreContent "<h2> Undesired AdminCount atribute user Summary</h2>") -replace "`n", "<br>"
     }
+    If ($ObjectsToClean) {
+        $ObjectsToCleanSummary = ($ObjectsToClean | ConvertTo-Html -As Table  -Fragment -PreContent "<h2> Orphaned and Lingering objects Summary</h2>") -replace "`n", "<br>"
+    }
 
     $DomainSummary = $DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>"    
     $SitesSummary = ($SiteDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Sites Summary</h2>" ) -replace "`n", "<br>" -replace '<td>No DC in Site</td>', '<td bgcolor="red">No DC in Site</td>'
@@ -780,7 +811,7 @@ Function Get-ADForestDetails {
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
     $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath    
 }
 
