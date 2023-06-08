@@ -163,7 +163,6 @@ Function Get-AdminCountDetails {
     return $AdminCountDetails
 }
 
-
 # Return the details of DHCP Servers
 Function Get-ADDHCPDetails {  
     
@@ -536,15 +535,21 @@ Function Get-DomainServerDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
     )
 
+    $DomainServerDetails = @()
+    $Today = Get-Date
+    $InactivePeriod = 90
     $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    
+    $Servers = Get-ADComputer -Filter { OperatingSystem -Like "*Server*" } -Properties OperatingSystem, PasswordLastSet -Server $PDC 
+    $OSs = $Servers | Group-Object OperatingSystem | Select-Object Name, Count
 
-    $OSs = Get-ADComputer -Filter { OperatingSystem -Like "*Server*" } -Properties OperatingSystem -Server $PDC | Group-Object OperatingSystem | Select-Object Name, Count
     ForEach ($OS in $OSs) {
         $DomainServerDetails += [PSCustomObject]@{
-            DomainName = $DomainName
-            OSName     = $OS.Name
-            Count      = $OS.count
-        }
+            DomainName     = $DomainName
+            OSName         = $OS.Name
+            Count          = $OS.count
+            StaleCount_90d = ($Servers | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.PasswordLastSet -lt $Today.AddDays( - ($InactivePeriod)) }).Name.Count
+        }        
     }
     return $DomainServerDetails
 }
@@ -557,15 +562,20 @@ Function Get-DomainClientDetails {
     )
 
     $DomainClientDetails = @()
+    $Today = Get-Date
+    $InactivePeriod = 90
     $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
 
-    $OSs = Get-ADComputer -Filter { OperatingSystem -NotLike "*Server*" } -Properties OperatingSystem -Server $PDC | Group-Object OperatingSystem | Select-Object Name, Count
+    $Workstations = Get-ADComputer -Filter { OperatingSystem -Notlike "*Server*" } -Properties OperatingSystem, PasswordLastSet -Server $PDC 
+    $OSs = $Workstations | Group-Object OperatingSystem | Select-Object Name, Count
+
     If ($OSs.count -gt 0) {
         ForEach ($OS in $OSs) {
             $DomainClientDetails += [PSCustomObject]@{
-                DomainName = $DomainName
-                OSName     = $OS.Name
-                Count      = $OS.count
+                DomainName     = $DomainName
+                OSName         = $OS.Name
+                Count          = $OS.count
+                StaleCount_90d = ($Workstations | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.PasswordLastSet -lt $Today.AddDays( - ($InactivePeriod)) }).Name.Count
             }
         }
     }
