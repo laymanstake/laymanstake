@@ -138,13 +138,18 @@ Function Get-ADDNSZoneDetails {
     $DNSServerZoneDetails = @()
     $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator    
     
-    $DNSZones = Get-DnsServerZone -ComputerName $PDC | Where-Object { -Not $_.IsReverseLookupZone } | Select-Object ZoneName, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, MasterServers, SecondaryServers
+    $DNSZones = Get-DnsServerZone -ComputerName $PDC | Where-Object { -Not $_.IsReverseLookupZone } | Select-Object DistinguishedName, ZoneName, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, MasterServers, SecureSecondaries, SecondaryServers
 
     ForEach ($DNSZone in $DNSZones) {
+        If ($DNSZone.DistinguishedName) {
+            $Info = (Get-DnsServerZone -zoneName $DNSZone.ZoneName -ComputerName $PDC | Where-Object { -NOT $_.IsReverseLookupZone -AND $_.ZoneType -ne "Forwarder" }).Distinguishedname | ForEach-Object { Get-ADOBject -Identity $_ -Server $PDC -Properties ProtectedFromAccidentalDeletion, Created }
+        }
         $ZoneInfo = New-Object PSObject
         $ZoneInfo = $DNSZone
         Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name DNSServer -value $PDC
-        $DNSServerZoneDetails += $ZoneInfo | Select-Object DNSServer, ZoneName, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, @{l = "MasterServers"; e = { $_.MasterServers -join "`n" } } , @{l = "SecondaryServers"; e = { $_.SecondaryServers -join "`n" } } 
+        Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name ProtectedFromDeletion -value $Info.ProtectedFromAccidentalDeletion
+        Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name Created -value $Info.Created
+        $DNSServerZoneDetails += $ZoneInfo | Select-Object DNSServer, ZoneName, ProtectedFromDeletion, Created, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, @{l = "MasterServers"; e = { $_.MasterServers -join "`n" } } , SecureSecondaries, @{l = "SecondaryServers"; e = { $_.SecondaryServers -join "`n" } } 
     }
 
     return $DNSServerZoneDetails
