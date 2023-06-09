@@ -92,10 +92,17 @@ Function Get-PKIDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
     )
 
+    $PKIDetails = New-Object psobject
     $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator    
-    $PKI = Get-ADObject -Filter { objectClass -eq "pKIEnrollmentService" } -Server $PDC -SearchBase "CN=Enrollment Services,CN=Public Key Services,CN=Services,$((Get-ADRootDSE).ConfigurationNamingContext)"  -Properties DisplayName, DnsHostName | Select-Object DisplayName, DnsHostName, @{l = "OperatingSystem"; e = { (Get-ADComputer $_.DnsHostName -Properties OperatingSystem -$PDC).OperatingSystem } }, @{l = "IPv4Address"; e = { ([System.Net.Dns]::GetHostAddresses($_.DnsHostName) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n" } }
+    $PKI = Get-ADObject -Filter { objectClass -eq "pKIEnrollmentService" } -Server $PDC -SearchBase "CN=Enrollment Services,CN=Public Key Services,CN=Services,$((Get-ADRootDSE).ConfigurationNamingContext)"  -Properties DisplayName, DnsHostName | Select-Object DisplayName, DnsHostName, @{l = "OperatingSystem"; e = { (Get-ADComputer ($_.DNShostname -replace ".$DomainName") -Properties OperatingSystem -server $PDC).OperatingSystem } }, @{l = "IPv4Address"; e = { ([System.Net.Dns]::GetHostAddresses($_.DnsHostName) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n" } }
 
-    Return $PKI
+    If ($PKI) {
+        $cert = invoke-command -ComputerName $PKI.DnsHostName -ScriptBlock { Get-ChildItem -Path cert:\LocalMachine\my | Where-Object { $_.issuer -eq $_.Subject } }    
+        $PKIDetails = $PKI
+        Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "SecureHashAlgo" -value $cert.SignatureAlgorithm.FriendlyName
+    }
+    
+    Return $PKIDetails
 }
 
 # Returns the details of the DNS servers in the given domain
@@ -889,7 +896,7 @@ Function Get-ADForestDetails {
         $DHCPSummary = (Get-ADDHCPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Summary</h2>") -replace "`n", "<br>"
     }
     If ($PKIDetails) {
-        $PKISummary = $PKIDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Certificate servers Summary</h2>"
+        $PKISummary = ($PKIDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Certificate servers Summary</h2>") -replace '<td>SHA1RSA</td>', '<td bgcolor="red">SHA1RSA</td>'
     }
     If ($ClientOSDetails) {        
         $ClientOSSummary = $ClientOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Client OS Summary</h2>"
