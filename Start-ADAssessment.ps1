@@ -116,6 +116,7 @@ Function Get-ADDNSDetails {
             ServerName         = $DNSServer.Name
             IPAddress          = $DNSServer.IPv4Address
             OperatingSystem    = (Get-ADComputer $DNSServer.Name -Properties OperatingSystem -Server $PDC).OperatingSystem
+            Forwarders         = (Get-DnsServerForwarder -ComputerName $DNSServer.Name).IPAddress -join "`n"
             ScanvengingState   = $Scavenging.ScavengingState
             ScavengingInterval = $Scavenging.ScavengingInterval
             NoRefreshInterval  = $Scavenging.NoRefreshInterval
@@ -143,7 +144,7 @@ Function Get-ADDNSZoneDetails {
         $ZoneInfo = New-Object PSObject
         $ZoneInfo = $DNSZone
         Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name DNSServer -value $PDC
-        $DNSServerZoneDetails += $ZoneInfo | Select-Object DNSServer, ZoneName, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, MasterServers, SecondaryServers        
+        $DNSServerZoneDetails += $ZoneInfo | Select-Object DNSServer, ZoneName, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, @{l = "MasterServers"; e = { $_.MasterServers -join "`n" } } , @{l = "SecondaryServers"; e = { $_.SecondaryServers -join "`n" } } 
     }
 
     return $DNSServerZoneDetails
@@ -843,8 +844,8 @@ Function Get-ADForestDetails {
     }
 
     $DomainSummary = $DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>"
-    $DNSSummary = $DNSServerDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Servers Summary</h2>"
-    $DNSZoneSummary = $DNSZoneDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Zones Summary</h2>"
+    $DNSSummary = ($DNSServerDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Servers Summary</h2>") -replace "`n", "<br>"
+    $DNSZoneSummary = ($DNSZoneDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Zones Summary</h2>") -replace "`n", "<br>"
     $SitesSummary = ($SiteDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Sites Summary</h2>" ) -replace "`n", "<br>" -replace '<td>No DC in Site</td>', '<td bgcolor="red">No DC in Site</td>'
     $BuiltInUserSummary = $BuiltInUserDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>BuiltInUsers Summary</h2>"
     $UserSummary = $UserDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Users Summary</h2>"    
