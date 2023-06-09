@@ -452,6 +452,7 @@ Function Get-ADDomainDetails {
                 FSMORoles                   = (Get-ADDomainController -Identity $dc -Server $dc | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
                 SysvolType                  = $sysvolStatus
                 FSR2DFSRStatus              = $FSR2DFSRStatus
+                LAPSImplemented             = $null -ne (Get-ADObject -LDAPFilter "(name=ms-Mcs-AdmPwd)" -Server $PDC)  
                 SMB1Status                  = ($Results[0]).EnableSMB1Protocol
                 Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc).Status
                 NetlogonParameter           = ($Results[1]).vulnerablechannelallowlist
@@ -620,7 +621,7 @@ Function Get-BuiltInUserDetails {
 
     $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
     $domainSID = (Get-ADDomain $DomainName -server $PDC).domainSID.Value
-    $BuiltInUserSIDs = @(@("Administrator", ($domainSID + "-500")), @("Guest", ($domainSID + "-501")))
+    $BuiltInUserSIDs = @(@("Administrator", ($domainSID + "-500")), @("Guest", ($domainSID + "-501")), @("krbtgt", ($domainSID + "-502")))
 
     $BuiltInUsers = @()
 
@@ -641,6 +642,33 @@ Function Get-BuiltInUserDetails {
     }
 
     return $BuiltInUsers    
+}
+
+# Return the details of Orphaned Foreign Security Principals for the given domain, be cautious as domain connectivity issues can flag false positive
+Function Get-OrphanedFSP {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+    )
+
+    $orphanedFSPs = @()
+    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $AllFSPs = Get-ADObject -Filter { ObjectClass -eq 'ForeignSecurityPrincipal' } -Server $PDC
+
+    foreach ($FSP in $AllFSPs) {
+        Try
+        { $null = (New-Object System.Security.Principal.SecurityIdentifier($FSP.objectSid)).Translate([System.Security.Principal.NTAccount]) }
+        Catch {         
+            $OrphanedFSPs += $FSp.DistinguishedName
+        }
+    }
+
+    $OrphanedFSPDetails = [PSCustomObject]@{
+        DomainName   = $DomainName
+        OrphanedFSPs = $OrphanedFSPs -join "`n"
+    }
+
+    return $OrphanedFSPDetails
 }
 
 # Returns the Server OS sumamry of the given domain
@@ -815,6 +843,7 @@ Function Get-ADForestDetails {
     $PasswordPolicyDetails = @()
     $FGPwdPolicyDetails = @()
     $ObjectsToClean = @()
+    $OrphanedFSPDetails = @()
     $ServerOSDetails = @()
     $ClientOSDetails = @()
     $PKIDetails = @()
@@ -835,6 +864,7 @@ Function Get-ADForestDetails {
         $PasswordPolicyDetails += Get-ADPasswordPolicy -DomainName $domain        
         $FGPwdPolicyDetails += Get-FineGrainedPasswordPolicy -DomainName $domain
         $ObjectsToClean += Get-ADObjectsToClean -DomainName $domain
+        $OrphanedFSPDetails += Get-OrphanedFSP -DomainName $domain
         $ServerOSDetails += Get-DomainServerDetails -DomainName $domain
         $ClientOSDetails += Get-DomainClientDetails -DomainName $domain
         $PKIDetails += Get-PKIDetails -DomainName $domain
@@ -867,6 +897,10 @@ Function Get-ADForestDetails {
         $ObjectsToCleanSummary = ($ObjectsToClean | ConvertTo-Html -As Table  -Fragment -PreContent "<h2> Orphaned and Lingering objects Summary</h2>") -replace "`n", "<br>"
     }
 
+    If ($OrphanedFSPDetails) {
+        $OrphanedFSPSummary = ($OrphanedFSPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2> Orphaned foreign security principals Summary</h2>") -replace "`n", "<br>"
+    }
+
     $DomainSummary = $DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>"
     $DNSSummary = ($DNSServerDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Servers Summary</h2>") -replace "`n", "<br>"
     $DNSZoneSummary = ($DNSZoneDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Zones Summary</h2>") -replace "`n", "<br>"
@@ -880,7 +914,7 @@ Function Get-ADForestDetails {
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
     $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath    
 }
 
