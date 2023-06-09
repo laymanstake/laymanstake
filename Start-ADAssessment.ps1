@@ -450,9 +450,9 @@ Function Get-ADDomainDetails {
                 OSVersion                   = $dc.OperatingSystem
                 IPAddress                   = $dc.IPv4Address
                 FSMORoles                   = (Get-ADDomainController -Identity $dc -Server $dc | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
-                SysvolType                  = $sysvolStatus
-                FSR2DFSRStatus              = $FSR2DFSRStatus
-                LAPSImplemented             = $null -ne (Get-ADObject -LDAPFilter "(name=ms-Mcs-AdmPwd)" -Server $PDC)  
+                Sysvol                      = $sysvolStatus
+                FSR2DFSR                    = $FSR2DFSRStatus
+                LAPS                        = $null -ne (Get-ADObject -LDAPFilter "(name=ms-Mcs-AdmPwd)" -Server $PDC)  
                 SMB1Status                  = ($Results[0]).EnableSMB1Protocol
                 Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc).Status
                 NetlogonParameter           = ($Results[1]).vulnerablechannelallowlist
