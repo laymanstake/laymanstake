@@ -449,7 +449,13 @@ Function Get-ADDomainDetails {
 
     foreach ($dc in $dcs) {
         if ( Test-Connection -ComputerName $dc -Count 1 -ErrorAction SilentlyContinue ) { 
-            $Results = invoke-command -ComputerName $dc -ScriptBlock { (Get-SmbServerConfiguration | Select-Object EnableSMB1Protocol), (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\') }
+            $Results = invoke-command -ComputerName $dc -ScriptBlock { 
+                (Get-SmbServerConfiguration | Select-Object EnableSMB1Protocol), 
+                (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\'), 
+                ((Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\").PSChildName -contains "SSL 2.0"),
+                ((Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\").PSChildName -contains "TLS 1.0"),
+                ((Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\").PSChildName -contains "TLS 1.1")
+            }
 
             $DomainDetails += [PSCustomObject]@{
                 Domain                      = $domain
@@ -464,6 +470,9 @@ Function Get-ADDomainDetails {
                 FSR2DFSR                    = $FSR2DFSRStatus
                 LAPS                        = $null -ne (Get-ADObject -LDAPFilter "(name=ms-Mcs-AdmPwd)" -Server $PDC)  
                 SMB1Status                  = ($Results[0]).EnableSMB1Protocol
+                SSL2                        = ($Results[2])
+                TLS1                        = ($Results[3])
+                TLS11                       = ($Results[4])
                 Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc).Status
                 NetlogonParameter           = ($Results[1]).vulnerablechannelallowlist
                 ReadOnly                    = $dc.IsReadOnly
