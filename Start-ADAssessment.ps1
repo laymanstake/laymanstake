@@ -144,6 +144,12 @@ Function Get-ADDNSZoneDetails {
         If ($DNSZone.DistinguishedName) {
             $Info = (Get-DnsServerZone -zoneName $DNSZone.ZoneName -ComputerName $PDC | Where-Object { -NOT $_.IsReverseLookupZone -AND $_.ZoneType -ne "Forwarder" }).Distinguishedname | ForEach-Object { Get-ADOBject -Identity $_ -Server $PDC -Properties ProtectedFromAccidentalDeletion, Created }
         }
+        Else {
+            $Info = [PSCustomObject]@{
+                ProtectedFromAccidentalDeletion = $false
+                Created                         = ""
+            }
+        }
         $ZoneInfo = New-Object PSObject
         $ZoneInfo = $DNSZone
         Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name DNSServer -value $PDC
