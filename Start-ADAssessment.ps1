@@ -652,14 +652,19 @@ Function Get-OrphanedFSP {
     )
 
     $orphanedFSPs = @()
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $Domain = Get-ADDomain -Identity $DomainName
+    $PDC = $Domain.PDCEmulator
     $AllFSPs = Get-ADObject -Filter { ObjectClass -eq 'ForeignSecurityPrincipal' } -Server $PDC
+    $KnownFSPs = ("CN=S-1-5-4,CN=ForeignSecurityPrincipals," + $Domain, "CN=S-1-5-11,CN=ForeignSecurityPrincipals," + $Domain, "CN=S-1-5-17,CN=ForeignSecurityPrincipals," + $Domain, "CN=S-1-5-9,CN=ForeignSecurityPrincipals," + $Domain)
+        
 
     foreach ($FSP in $AllFSPs) {
         Try
         { $null = (New-Object System.Security.Principal.SecurityIdentifier($FSP.objectSid)).Translate([System.Security.Principal.NTAccount]) }
         Catch {         
-            $OrphanedFSPs += $FSp.DistinguishedName
+            If (-NOT($FSp.DistinguishedName -in $KnownFSPs)) {
+                $OrphanedFSPs += $FSp.DistinguishedName
+            }
         }
     }
 
