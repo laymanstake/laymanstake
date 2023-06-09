@@ -407,6 +407,18 @@ Function Get-ADDomainDetails {
     $UndesiredFeatures = ("ADFS-Federation", "DHCP", "Telnet-Client", "WDS", "Web-Server", "Web-Application-Proxy")
 
     $dcs = Get-ADDomainController -Filter * -Server $DomainName
+
+    $LowestOSversion = ($dcs.OperatingSystemVersion | Measure-Object -Minimum).Minimum
+    switch ($LowestOSversion) {
+        { $_ -like "6.0*" } { $possibleDFL += "Windows Server 2008" }
+        { $_ -like "6.1*" } { $possibleDFL += "Windows Server 2008 R2" }
+        { $_ -like "6.2*" } { $possibleDFL += "Windows Server 2012" }
+        { $_ -like "6.3*" } { $possibleDFL += "Windows Server 2012 R2" }
+        { $_ -like "10.0 (14*" } { $possibleDFL += "Windows Server 2016" }
+        { $_ -like "10.0 (17*" } { $possibleDFL += "Windows Server 2019" }
+        { $_ -like "10.0 (19*" -OR $_ -like "10.0 (2*" } { $possibleDFL += "Windows Server 2022" }
+        default { $possibleDFL += "Windows Server 2003" }
+    }
     
     $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
 
@@ -430,21 +442,22 @@ Function Get-ADDomainDetails {
             $Results = invoke-command -ComputerName $dc -ScriptBlock { (Get-SmbServerConfiguration | Select-Object EnableSMB1Protocol), (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\') }
 
             $DomainDetails += [PSCustomObject]@{
-                Domain              = $domain
-                DomainFunctionLevel = (Get-ADDomain -Identity $DomainName).DomainMode
-                DCName              = $dc.Name
-                Site                = $dc.site
-                OSVersion           = $dc.OperatingSystem
-                IPAddress           = $dc.IPv4Address
-                FSMORoles           = (Get-ADDomainController -Identity $dc -Server $dc | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
-                SysvolType          = $sysvolStatus
-                FSR2DFSRStatus      = $FSR2DFSRStatus
-                SMB1Status          = ($Results[0]).EnableSMB1Protocol
-                Firewall            = (Get-Service -name MpsSvc -ComputerName $dc).Status
-                NetlogonParameter   = ($Results[1]).vulnerablechannelallowlist
-                ReadOnly            = $dc.IsReadOnly
-                IsVirtual           = ((Get-CimInstance Win32_ComputerSystem -ComputerName $dc).model).Contains("Virtual")
-                UndesiredFeatures   = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject  (Get-WindowsFeature -ComputerName $dc | Where-Object Installed).Name -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
+                Domain                      = $domain
+                DomainFunctionLevel         = (Get-ADDomain -Identity $DomainName).DomainMode
+                PossibleDomainFunctionLevel = $possibleDFL
+                DCName                      = $dc.Name
+                Site                        = $dc.site
+                OSVersion                   = $dc.OperatingSystem
+                IPAddress                   = $dc.IPv4Address
+                FSMORoles                   = (Get-ADDomainController -Identity $dc -Server $dc | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
+                SysvolType                  = $sysvolStatus
+                FSR2DFSRStatus              = $FSR2DFSRStatus
+                SMB1Status                  = ($Results[0]).EnableSMB1Protocol
+                Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc).Status
+                NetlogonParameter           = ($Results[1]).vulnerablechannelallowlist
+                ReadOnly                    = $dc.IsReadOnly
+                IsVirtual                   = ((Get-CimInstance Win32_ComputerSystem -ComputerName $dc).model).Contains("Virtual")
+                UndesiredFeatures           = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject  (Get-WindowsFeature -ComputerName $dc | Where-Object Installed).Name -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
             }
         }
     }
