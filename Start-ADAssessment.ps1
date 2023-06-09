@@ -127,6 +127,28 @@ Function Get-ADDNSDetails {
     return $DNSServerDetails
 }
 
+# Returns the details of the DNS zones in the given DNS Server
+Function Get-ADDNSZoneDetails {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+    )
+
+    $DNSServerZoneDetails = @()
+    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator    
+    
+    $DNSZones = Get-DnsServerZone -ComputerName $PDC | Where-Object { -Not $_.IsReverseLookupZone } | Select-Object ZoneName, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, MasterServers, SecondaryServers
+
+    ForEach ($DNSZone in $DNSZones) {
+        $ZoneInfo = New-Object PSObject
+        $ZoneInfo = $DNSZone
+        Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name DNSServer -value $PDC
+        $DNSServerZoneDetails += $ZoneInfo | Select-Object DNSServer, ZoneName, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, MasterServers, SecondaryServers        
+    }
+
+    return $DNSServerZoneDetails
+}
+
 # Return the group members recusrively from the given domain only, would skip foreign ones
 Function Get-ADGroupMemberRecursive {
     [CmdletBinding()]
@@ -772,6 +794,7 @@ Function Get-ADForestDetails {
     $ClientOSDetails = @()
     $PKIDetails = @()
     $DNSServerDetails = @()
+    $DNSZoneDetails = @()
     $EmptyOUDetails = @()
     $GPODetails = @()
 
@@ -791,6 +814,7 @@ Function Get-ADForestDetails {
         $ClientOSDetails += Get-DomainClientDetails -DomainName $domain
         $PKIDetails += Get-PKIDetails -DomainName $domain
         $DNSServerDetails += Get-ADDNSDetails -DomainName $domain
+        $DNSZoneDetails += Get-ADDNSZoneDetails -DomainName $domain
         $EmptyOUDetails += Get-EmptyOUDetails -DomainName $domain
         $GPODetails += Get-ADGPODetails -DomainName $domain        
     }
@@ -820,6 +844,7 @@ Function Get-ADForestDetails {
 
     $DomainSummary = $DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>"
     $DNSSummary = $DNSServerDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Servers Summary</h2>"
+    $DNSZoneSummary = $DNSZoneDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Zones Summary</h2>"
     $SitesSummary = ($SiteDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Sites Summary</h2>" ) -replace "`n", "<br>" -replace '<td>No DC in Site</td>', '<td bgcolor="red">No DC in Site</td>'
     $BuiltInUserSummary = $BuiltInUserDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>BuiltInUsers Summary</h2>"
     $UserSummary = $UserDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Users Summary</h2>"    
@@ -830,7 +855,7 @@ Function Get-ADForestDetails {
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
     $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $DNSSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath    
 }
 
