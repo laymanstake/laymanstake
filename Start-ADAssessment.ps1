@@ -317,9 +317,12 @@ Function Get-ADGPODetails {
         $LinkedButDeactivatedGPOs = (Compare-Object -ReferenceObject $DeactivatedGPOs -DifferenceObject $LinkedGPOs -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object InputObject).InputObject
     }
 
+    $GPOsAtRootLevel = (Get-GPInheritance -Target (Get-ADDomain -Identity $DomainName).DistinguishedName).Gpolinks.DisplayName -join "`n"
+
     $UnlinkedGPODetails = [PSCustomObject]@{
         Domain                      = $domainname
         AllGPOs                     = $AllGPOs.count
+        GPOsAtRoot                  = $GPOsAtRootLevel
         Unlinked                    = @($UnlinkedGPOs).DisplayName -join "`n"
         UnlinkedCreationTime        = @($UnlinkedGPOs).CreationTime -join "`n"
         UnlinkedModificationTime    = @($UnlinkedGPOs).ModificationTime -join "`n"
