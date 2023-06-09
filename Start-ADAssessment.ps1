@@ -655,7 +655,9 @@ Function Get-OrphanedFSP {
     $Domain = Get-ADDomain -Identity $DomainName
     $PDC = $Domain.PDCEmulator
     $AllFSPs = Get-ADObject -Filter { ObjectClass -eq 'ForeignSecurityPrincipal' } -Server $PDC
-    $KnownFSPs = ("CN=S-1-5-4,CN=ForeignSecurityPrincipals," + $Domain, "CN=S-1-5-11,CN=ForeignSecurityPrincipals," + $Domain, "CN=S-1-5-17,CN=ForeignSecurityPrincipals," + $Domain, "CN=S-1-5-9,CN=ForeignSecurityPrincipals," + $Domain)
+    
+    <# NT AUTHORITY\INTERACTIVE, NT AUTHORITY\Authenticated Users, NT AUTHORITY\IUSR, NT AUTHORITY\ENTERPRISE DOMAIN CONTROLLERS #>
+    $KnownFSPs = (("CN=S-1-5-4,CN=ForeignSecurityPrincipals," + $Domain), ("CN=S-1-5-11,CN=ForeignSecurityPrincipals," + $Domain), ("CN=S-1-5-17,CN=ForeignSecurityPrincipals," + $Domain), ("CN=S-1-5-9,CN=ForeignSecurityPrincipals," + $Domain))
         
 
     foreach ($FSP in $AllFSPs) {
