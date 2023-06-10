@@ -452,9 +452,12 @@ Function Get-ADDomainDetails {
             $Results = invoke-command -ComputerName $dc -ScriptBlock { 
                 (Get-SmbServerConfiguration | Select-Object EnableSMB1Protocol), 
                 (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\'), 
-                ((Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\").PSChildName -contains "SSL 2.0"),
-                ((Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\").PSChildName -contains "TLS 1.0"),
-                ((Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\").PSChildName -contains "TLS 1.1")
+                ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0),
+                ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Server" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Server" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0),
+                ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0),
+                ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0),
+                ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0),
+                ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0)
             }
 
             $DomainDetails += [PSCustomObject]@{
@@ -470,9 +473,12 @@ Function Get-ADDomainDetails {
                 FSR2DFSR                    = $FSR2DFSRStatus
                 LAPS                        = $null -ne (Get-ADObject -LDAPFilter "(name=ms-Mcs-AdmPwd)" -Server $PDC)  
                 SMB1Status                  = ($Results[0]).EnableSMB1Protocol
-                SSL2                        = ($Results[2])
-                TLS1                        = ($Results[3])
-                TLS11                       = ($Results[4])
+                SSL2Client                  = $Results[2]
+                SSL2Server                  = $Results[3]
+                TLS1Client                  = $Results[4]
+                TLS1Server                  = $Results[5]
+                TLS11Client                 = $Results[6]
+                TLS11Server                 = $Results[7]
                 Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc).Status
                 NetlogonParameter           = ($Results[1]).vulnerablechannelallowlist
                 ReadOnly                    = $dc.IsReadOnly
