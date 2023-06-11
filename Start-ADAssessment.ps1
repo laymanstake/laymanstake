@@ -82,21 +82,27 @@ Function Get-ADFSDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
     )
     
+    $adfsServers = @()
+    $aadconnectServers = @()
+    $ADFSServerDetails = @()
+    $AADCServerDetails = @()
+
     $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
 
-    $adfsServers = Get-ADComputer -Filter { OperatingSystem -like "*Server*" } -Server $PDC -Properties OperatingSystem |
+    Get-ADComputer -Filter { OperatingSystem -like "*Server*" } -Server $PDC  |
     ForEach-Object {
         $computer = $_.Name
-        $service = Invoke-Command -ComputerName $computer -ScriptBlock { Get-Service -Name "adfssrv" -ErrorAction SilentlyContinue }
-        if ($service) {
-            $computer
+        $service = Invoke-Command -ComputerName $computer -ScriptBlock { (Get-Service -Name "adfssrv" -ErrorAction SilentlyContinue).Name ; (Get-Service -Name "adsync" -ErrorAction SilentlyContinue).Name }
+        if ($service[0] -eq "adfssrv") {
+            $adfsServers += $computer
         }
-    }    
-
-    $ADFSServerDetails = @()
+        if ($service[1] -eq "adsync" ) {
+            $aadconnectServers += $computer
+        }
+    }
 
     foreach ($server in $adfsServers) {        
-        $ADFSproperties = invoke-command -ComputerName $server -ScriptBlock { import-module ADFS; Get-ADFSSyncProperties; (Get-ADFSProperties).displayname }
+        $ADFSproperties = invoke-command -ComputerName $server -ScriptBlock { import-module ADFS; Get-ADFSSyncProperties; (Get-ADFSProperties).displayname }        
         if (($ADFSproperties[0]).Role -eq "PrimaryComputer") {
             $isMaster = $true
         }
@@ -106,26 +112,39 @@ Function Get-ADFSDetails {
         
         $serverInfo = [PSCustomObject]@{
             ServerName      = $server
-            OperatingSystem = (Get-ADomcputer $server -server $PDC -properties OperatingSystem).OperatingSystem
+            OperatingSystem = (Get-ADComputer $server -server $PDC -properties OperatingSystem).OperatingSystem
             IsMaster        = $isMaster
             ADFSName        = $ADFSproperties[1]
         }
 
         $ADFSServerDetails += $serverInfo
     }
+
+    foreach ($server in $aadconnectServers) {        
+        $ADSyncVersion = invoke-command -ComputerName $server -ScriptBlock { (Get-Item (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Azure AD Connect").WizardPath).VersionInfo.FileVersion; (Get-Service -Name ADSYnc).Status -eq "Running" }        
+        
+        $serverInfo = [PSCustomObject]@{
+            ServerName      = $server
+            OperatingSystem = (Get-ADComputer $server -server $PDC -properties OperatingSystem).OperatingSystem            
+            ADSyncVersion   = $ADSyncVersion[0]
+            IsActive        = $ADSyncVersion[1]
+        }
+
+        $AADCServerDetails += $serverInfo
+    }
     
-    return $ADFSServerDetails
+    return $ADFSServerDetails, $AADCServerDetails
 }
 
 # Returns the details of the PKI servers
 Function Get-PKIDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$ForestName
     )
 
     $PKIDetails = New-Object psobject
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator    
+    $PDC = (Get-ADDomain -Identity $ForestName).PDCEmulator    
     $PKI = Get-ADObject -Filter { objectClass -eq "pKIEnrollmentService" } -Server $PDC -SearchBase "CN=Enrollment Services,CN=Public Key Services,CN=Services,$((Get-ADRootDSE).ConfigurationNamingContext)"  -Properties DisplayName, DnsHostName | Select-Object DisplayName, DnsHostName, @{l = "OperatingSystem"; e = { (Get-ADComputer ($_.DNShostname -replace ".$DomainName") -Properties OperatingSystem -server $PDC).OperatingSystem } }, @{l = "IPv4Address"; e = { ([System.Net.Dns]::GetHostAddresses($_.DnsHostName) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n" } }
 
     If ($PKI) {
@@ -895,6 +914,7 @@ Function Get-ADForestDetails {
     }
 
     $ForestPrivGroupsSummary = ($ForestPrivGroups | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Forest-wide Priviledged groups Summary</h2>") -replace "`n", "<br>"
+    $PKIDetails = Get-PKIDetails -ForestName $forest
 
     $TrustDetails = @()
     $DomainDetails = @()    
@@ -909,10 +929,9 @@ Function Get-ADForestDetails {
     $ObjectsToClean = @()
     $OrphanedFSPDetails = @()
     $ServerOSDetails = @()
-    $ClientOSDetails = @()
-    $PKIDetails = @()
-    $ADFSDetails = @()
-    $AADConnectDetails = @()
+    $ClientOSDetails = @()    
+    $ADFSDetails = @()    
+    $ADSyncDetails = @()
     $DNSServerDetails = @()
     $DNSZoneDetails = @()
     $EmptyOUDetails = @()
@@ -933,7 +952,9 @@ Function Get-ADForestDetails {
         $OrphanedFSPDetails += Get-OrphanedFSP -DomainName $domain
         $ServerOSDetails += Get-DomainServerDetails -DomainName $domain
         $ClientOSDetails += Get-DomainClientDetails -DomainName $domain
-        $PKIDetails += Get-PKIDetails -DomainName $domain
+        $ADFSDetail, $ADSyncDetail = Get-ADFSDetails -DomainName $domain
+        $ADFSDetails += $ADFSDetail
+        $ADSyncDetails += $ADSyncDetail        
         $ADFSDetails += Get-ADFSDetails -DomainName $domain
         $DNSServerDetails += Get-ADDNSDetails -DomainName $domain
         $DNSZoneDetails += Get-ADDNSZoneDetails -DomainName $domain
@@ -945,15 +966,21 @@ Function Get-ADForestDetails {
     If ($TrustDetails) {
         $TrustSummary = ($TrustDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Trust Summary</h2>")
     }
-    If (Get-ADDHCPDetails) {
-        $DHCPSummary = (Get-ADDHCPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Summary</h2>") -replace "`n", "<br>"
+    $DHCPDetails = Get-ADDHCPDetails
+    If ($DHCPDetails) {
+        $DHCPSummary = ($DHCPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Summary</h2>") -replace "`n", "<br>"
     }
     If ($PKIDetails) {
         $PKISummary = ($PKIDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Certificate servers Summary</h2>") -replace '<td>SHA1RSA</td>', '<td bgcolor="red">SHA1RSA</td>'
     }
-    If ($ADFSDetails) {
-        $ADFSSummary = ($ADFSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADFS servers Summary</h2>") 
+    If ($ADSyncDetails) {
+        $ADSyncSummary = $ADSyncDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADSync servers Summary</h2>"        
     }
+    If ($ADFSDetails) {
+        $ADFSSummary = $ADFSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADFS servers Summary</h2>"        
+        $ADFSDetails.count
+        $ADFSDetails.servername -eq ""
+    }    
     If ($ClientOSDetails) {        
         $ClientOSSummary = $ClientOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Client OS Summary</h2>"
     }
@@ -984,7 +1011,7 @@ Function Get-ADForestDetails {
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
     $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath    
 }
 
