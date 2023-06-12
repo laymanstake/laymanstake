@@ -550,6 +550,7 @@ Function Get-ADDomainDetails {
                 FSR2DFSR                    = $FSR2DFSRStatus
                 LAPS                        = $null -ne (Get-ADObject -LDAPFilter "(name=ms-Mcs-AdmPwd)" -Server $PDC -Credential $Credential)
                 NTPServer                   = ($Results[8] | Select-Object -Unique) -join "`n"
+                ADWSStatus                  = (Get-Service ADWS -computername $dc.Name).StartType
                 SMB1Status                  = ($Results[0]).EnableSMB1Protocol
                 SSL2Client                  = $Results[2]
                 SSL2Server                  = $Results[3]
