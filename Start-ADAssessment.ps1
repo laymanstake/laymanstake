@@ -18,7 +18,8 @@ Import-Module DnsServer
 $logopath = "https://camo.githubusercontent.com/239d9de795c471d44ad89783ec7dc03a76f5c0d60d00e457c181b6e95c6950b6/68747470733a2f2f6e69746973686b756d61722e66696c65732e776f726470726573732e636f6d2f323032322f31302f63726f707065642d696d675f32303232303732335f3039343534372d72656d6f766562672d707265766965772e706e67"
 $ReportPath1 = "$env:USERPROFILE\desktop\ADReport_$(get-date -Uformat "%Y%m%d-%H%M%S").html"
 $CopyRightInfo = " @Copyright Niitsh Kumar <a href='https://github.com/laymanstake'>Visit nitishkumar.net</a>"
-$forestcheck = $false
+[bool]$forestcheck = $false
+$counter = 0
 
 # CSS codes to format the report
 $header = @"
@@ -582,34 +583,36 @@ Function Get-ADSiteDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
-    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
-
-    $sites = Get-ADReplicationSite -Filter * -Server $PDC -Credential $Credential -Properties WhenCreated, WhenChanged, ProtectedFromAccidentalDeletion, Subnets
     $SiteDetails = @()
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
+    $sites = Get-ADReplicationSite -Filter * -Server $PDC -Credential $Credential -Properties WhenCreated, WhenChanged, ProtectedFromAccidentalDeletion, Subnets    
 
-    foreach ($site in $sites) {
+    foreach ($site in $sites) {        
         $dcs = @(Get-ADDomainController -Filter { Site -eq $site.Name } -Server $PDC -Credential $Credential)
         if ($dcs.Count -eq 0) {
-            $SiteDetails += New-Object PSObject -Property @{
-                DomainName                          = $DomainName
-                SiteName                            = $site.Name
-                SiteCreated                         = $Site.WhenCreated
-                SiteModified                        = $Site.WhenChanged
-                Subnets                             = ($site.subnets | Get-ADReplicationSubnet -Server $PDC -Credential $Credential | Select-Object Name).Name -join "`n"
-                DCinSite                            = "No DC in Site"
-                SiteLink                            = $link.Name
-                SiteLinkType                        = $link.InterSiteTransportProtocol
-                SiteLinkCost                        = $link.Cost
-                ReplicationInterval                 = $link.replInterval
-                SiteProtectedFromAccidentalDeletion = $site.ProtectedFromAccidentalDeletion
-                LinkProtectedFromAccidentalDeletion = $link.ProtectedFromAccidentalDeletion
-            }
+            $links = Get-ADReplicationSiteLink -Filter * -Server $PDC -Credential $Credential -Properties InterSiteTransportProtocol, replInterval, ProtectedFromAccidentalDeletion | Where-Object { $_.sitesIncluded -contains $site.DistinguishedName }
+            foreach ($link in $links) {
+                $SiteDetails += [pscustomobject]@{
+                    DomainName                          = $DomainName
+                    SiteName                            = $site.Name
+                    SiteCreated                         = $Site.WhenCreated
+                    SiteModified                        = $Site.WhenChanged
+                    Subnets                             = ($site.subnets | Get-ADReplicationSubnet -Server $PDC  -Credential $Credential | Select-Object Name).Name -join "`n"
+                    DCinSite                            = "No DCs in site"
+                    SiteLink                            = $link.Name
+                    SiteLinkType                        = $link.InterSiteTransportProtocol
+                    SiteLinkCost                        = $link.Cost
+                    ReplicationInterval                 = $link.replInterval
+                    SiteProtectedFromAccidentalDeletion = $site.ProtectedFromAccidentalDeletion
+                    LinkProtectedFromAccidentalDeletion = $link.ProtectedFromAccidentalDeletion                    
+                }
+            }            
         }
         else {
             foreach ($dc in $dcs) {
                 $links = Get-ADReplicationSiteLink -Filter * -Server $PDC -Credential $Credential -Properties InterSiteTransportProtocol, replInterval, ProtectedFromAccidentalDeletion | Where-Object { $_.sitesIncluded -contains $site.DistinguishedName }
                 foreach ($link in $links) {
-                    $SiteDetails += New-Object PSObject -Property @{
+                    $SiteDetails += [pscustomobject]@{
                         DomainName                          = $DomainName
                         SiteName                            = $site.Name
                         SiteCreated                         = $Site.WhenCreated
@@ -622,13 +625,13 @@ Function Get-ADSiteDetails {
                         ReplicationInterval                 = $link.replInterval
                         SiteProtectedFromAccidentalDeletion = $site.ProtectedFromAccidentalDeletion
                         LinkProtectedFromAccidentalDeletion = $link.ProtectedFromAccidentalDeletion
-                    }
+                    }     
                 }
-            }
+            }            
         }
-    }
+    }    
 
-    $SiteDetails = $SiteDetails | Select-Object DomainName, SiteName, SiteCreated, SiteModified, Subnets, SiteProtectedFromAccidentalDeletion, DCinSite, SiteLink, SiteLinkType, SiteLinkCost, ReplicationInterval, LinkProtectedFromAccidentalDeletion
+    $SiteDetails = $SiteDetails | Select-Object DomainName, SiteName, SiteCreated, SiteModified, Subnets, SiteProtectedFromAccidentalDeletion, DCinSite, SiteLink, SiteLinkType, SiteLinkCost, ReplicationInterval, LinkProtectedFromAccidentalDeletion | Sort-Object DomainName, SiteLink
 
     return $SiteDetails
 }
@@ -857,7 +860,7 @@ Function Get-ADForestDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)]$ReportPath = $ReportPath1,
         [Parameter(ValueFromPipeline = $true, mandatory = $false)]$CSSHeader = $header,
         [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential,
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$ChildDomain
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)]$ChildDomain
     )    
 
     # Collecting information about current Forest configuration
@@ -1064,8 +1067,8 @@ $choice = Read-Host "Enter your choice: "
 switch ($choice) {
     '1' {
         Write-Output "Carefully type Forest Enterprise Admin credentials:"
-        Get-ADForestDetails -Credential (Get-Credential)
         $forestcheck = $true
+        Get-ADForestDetails -Credential (Get-Credential)        
     }   
     '2' {
         $Response = Read-host "Type the domain name or just press ENTER to select current domain :"
@@ -1084,4 +1087,6 @@ switch ($choice) {
         exit
     }
 }
+
+$counter
 
