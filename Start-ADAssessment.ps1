@@ -19,7 +19,6 @@ $logopath = "https://camo.githubusercontent.com/239d9de795c471d44ad89783ec7dc03a
 $ReportPath1 = "$env:USERPROFILE\desktop\ADReport_$(get-date -Uformat "%Y%m%d-%H%M%S").html"
 $CopyRightInfo = " @Copyright Niitsh Kumar <a href='https://github.com/laymanstake'>Visit nitishkumar.net</a>"
 [bool]$forestcheck = $false
-$counter = 0
 
 # CSS codes to format the report
 $header = @"
@@ -852,6 +851,14 @@ Function Get-DomainClientDetails {
     return $DomainClientDetails
 }
 
+Function Start-SecurityCheck {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
+    )
+}
+
 # The main function to perform assessment of AD Forest and produce results as html file
 Function Get-ADForestDetails {
     [CmdletBinding()]
@@ -1087,6 +1094,3 @@ switch ($choice) {
         exit
     }
 }
-
-$counter
-
