@@ -37,15 +37,21 @@ If ($logopath) {
     $header = $header + "<img src=$logopath alt='Company logo' width='150' height='150' align='right'>"
 }
 
-# Numbe of functions to get the details of the environment
+# Number of functions to get the details of the environment
 # Returns the details of AD trusts in the given domain
 Function Get-ADTrustDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
     
-    $trusts = Get-ADTrust -Filter * -Server $DomainName -Properties Created, Modified, ForestTransitive | Select-Object Name, Source, Target, Created, Modified, Direction, TrustType, Intraforest, ForestTransitive
+    if ($Credential) {
+        $trusts = Get-ADTrust -Filter * -Server $DomainName -Credential $Credential -Properties Created, Modified, ForestTransitive | Select-Object Name, Source, Target, Created, Modified, Direction, TrustType, Intraforest, ForestTransitive
+    }
+    else {
+        $trusts = Get-ADTrust -Filter * -Server $DomainName -Properties Created, Modified, ForestTransitive | Select-Object Name, Source, Target, Created, Modified, Direction, TrustType, Intraforest, ForestTransitive
+    }
 
     $TrustDetails = @()
 
@@ -53,7 +59,12 @@ Function Get-ADTrustDetails {
         $stale = $false        
         if ($trust.TrustType -eq "External" -and $trust.Direction -eq "Bidirectional") {
             try {
-                $null = Get-ADDomain -Identity $trust.Target -Server $trust.Target -ErrorAction Stop
+                if ($Credential) {
+                    $null = Get-ADDomain -Identity $trust.Target -Server $trust.Target -Credential $Credential -ErrorAction Stop
+                }
+                else {
+                    $null = Get-ADDomain -Identity $trust.Target -Server $trust.Target -ErrorAction Stop
+                }
             }
             catch {
                 $stale = $true
@@ -79,7 +90,8 @@ Function Get-ADTrustDetails {
 Function Get-ADFSDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
     
     $adfsServers = @()
@@ -87,12 +99,12 @@ Function Get-ADFSDetails {
     $ADFSServerDetails = @()
     $AADCServerDetails = @()
 
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential).PDCEmulator
 
-    Get-ADComputer -Filter { OperatingSystem -like "*Server*" } -Server $PDC  |
+    Get-ADComputer -Filter { OperatingSystem -like "*Server*" } -Server $PDC -Credential $Credential |
     ForEach-Object {
         $computer = $_.Name
-        $service = Invoke-Command -ComputerName $computer -ScriptBlock { (Get-Service -Name "adfssrv" -ErrorAction SilentlyContinue).Name ; (Get-Service -Name "adsync" -ErrorAction SilentlyContinue).Name }
+        $service = Invoke-Command -ComputerName $computer -ScriptBlock { (Get-Service -Name "adfssrv" -ErrorAction SilentlyContinue).Name ; (Get-Service -Name "adsync" -ErrorAction SilentlyContinue).Name }  -Credential $Credential
         if ($service[0] -eq "adfssrv") {
             $adfsServers += $computer
         }
@@ -102,7 +114,7 @@ Function Get-ADFSDetails {
     }
 
     foreach ($server in $adfsServers) {        
-        $ADFSproperties = invoke-command -ComputerName $server -ScriptBlock { import-module ADFS; Get-ADFSSyncProperties; (Get-ADFSProperties).displayname }        
+        $ADFSproperties = invoke-command -ComputerName $server -ScriptBlock { import-module ADFS; Get-ADFSSyncProperties; (Get-ADFSProperties).Identifier } -Credential $Credential
         if (($ADFSproperties[0]).Role -eq "PrimaryComputer") {
             $isMaster = $true
         }
@@ -112,7 +124,7 @@ Function Get-ADFSDetails {
         
         $serverInfo = [PSCustomObject]@{
             ServerName      = $server
-            OperatingSystem = (Get-ADComputer $server -server $PDC -properties OperatingSystem).OperatingSystem
+            OperatingSystem = (Get-ADComputer $server -server $PDC -Credential $Credential -properties OperatingSystem).OperatingSystem
             IsMaster        = $isMaster
             ADFSName        = $ADFSproperties[1]
         }
@@ -121,37 +133,39 @@ Function Get-ADFSDetails {
     }
 
     foreach ($server in $aadconnectServers) {        
-        $ADSyncVersion = invoke-command -ComputerName $server -ScriptBlock { (Get-Item (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Azure AD Connect").WizardPath).VersionInfo.FileVersion; (Get-Service -Name ADSYnc).Status -eq "Running" }        
+        $ADSyncVersion = invoke-command -ComputerName $server -Credential $Credential -ScriptBlock { (Get-Item (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Azure AD Connect").WizardPath).VersionInfo.FileVersion; (Get-Service -Name ADSYnc).Status -eq "Running" }        
         
-        $serverInfo = [PSCustomObject]@{
+        $Info = [PSCustomObject]@{
             ServerName      = $server
-            OperatingSystem = (Get-ADComputer $server -server $PDC -properties OperatingSystem).OperatingSystem            
+            OperatingSystem = (Get-ADComputer $server -server $PDC -Credential $Credential -properties OperatingSystem).OperatingSystem            
             ADSyncVersion   = $ADSyncVersion[0]
             IsActive        = $ADSyncVersion[1]
         }
 
-        $AADCServerDetails += $serverInfo
+        $AADCServerDetails += $Info
     }
     
-    return $ADFSServerDetails, $AADCServerDetails
+    return $AADCServerDetails, $ADFSServerDetails 
 }
 
 # Returns the details of the PKI servers
 Function Get-PKIDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$ForestName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$ForestName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
     $PKIDetails = New-Object psobject
-    $PDC = (Get-ADDomain -Identity $ForestName).PDCEmulator    
-    $PKI = Get-ADObject -Filter { objectClass -eq "pKIEnrollmentService" } -Server $PDC -SearchBase "CN=Enrollment Services,CN=Public Key Services,CN=Services,$((Get-ADRootDSE).ConfigurationNamingContext)"  -Properties DisplayName, DnsHostName | Select-Object DisplayName, DnsHostName, @{l = "OperatingSystem"; e = { (Get-ADComputer ($_.DNShostname -replace ".$DomainName") -Properties OperatingSystem -server $PDC).OperatingSystem } }, @{l = "IPv4Address"; e = { ([System.Net.Dns]::GetHostAddresses($_.DnsHostName) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n" } }
+    
+    $PDC = (Get-ADDomain -Identity $ForestName -Credential $Credential -Server $ForestName).PDCEmulator    
+    $PKI = Get-ADObject -Filter { objectClass -eq "pKIEnrollmentService" } -Server $PDC -Credential $Credential -SearchBase "CN=Enrollment Services,CN=Public Key Services,CN=Services,$((Get-ADRootDSE).ConfigurationNamingContext)"  -Properties DisplayName, DnsHostName | Select-Object DisplayName, DnsHostName, @{l = "OperatingSystem"; e = { (Get-ADComputer ($_.DNShostname -replace ".$ForestName") -Properties OperatingSystem -server $PDC -Credential $Credential).OperatingSystem } }, @{l = "IPv4Address"; e = { ([System.Net.Dns]::GetHostAddresses($_.DnsHostName) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n" } }
 
     If ($PKI) {
-        $cert = invoke-command -ComputerName $PKI.DnsHostName -ScriptBlock { Get-ChildItem -Path cert:\LocalMachine\my | Where-Object { $_.issuer -eq $_.Subject } }    
+        $cert = invoke-command -ComputerName $PKI.DnsHostName -Credential $Credential -ScriptBlock { Get-ChildItem -Path cert:\LocalMachine\my | Where-Object { $_.issuer -eq $_.Subject } }    
         $PKIDetails = $PKI
         Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "SecureHashAlgo" -value $cert.SignatureAlgorithm.FriendlyName
-    }
+    }    
     
     Return $PKIDetails
 }
@@ -160,20 +174,21 @@ Function Get-PKIDetails {
 Function Get-ADDNSDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
     $DNSServerDetails = @()
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator    
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential).PDCEmulator    
     
-    $DNSServers = (Get-ADDomainController -Filter * -server $PDC) | Where-Object { (Get-WindowsFeature -ComputerName $_.name -Name DNS ) } | Select-Object Name, IPv4Address
+    $DNSServers = (Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { (Get-WindowsFeature -ComputerName $_.name -Name DNS -Credential $Credential) } | Select-Object Name, IPv4Address
 
     ForEach ($DNSServer in $DNSServers) {
-        $Scavenging = Get-DnsServerScavenging -ComputerName $DNSServer.Name 
+        $Scavenging = Get-DnsServerScavenging -ComputerName $DNSServer.Name
         $DNSServerDetails += [PSCustomObject]@{
             ServerName         = $DNSServer.Name
             IPAddress          = $DNSServer.IPv4Address
-            OperatingSystem    = (Get-ADComputer $DNSServer.Name -Properties OperatingSystem -Server $PDC).OperatingSystem
+            OperatingSystem    = (Get-ADComputer $DNSServer.Name -Properties OperatingSystem -Server $PDC -Credential $Credential).OperatingSystem
             Forwarders         = (Get-DnsServerForwarder -ComputerName $DNSServer.Name).IPAddress -join "`n"
             ScanvengingState   = $Scavenging.ScavengingState
             ScavengingInterval = $Scavenging.ScavengingInterval
@@ -190,17 +205,18 @@ Function Get-ADDNSDetails {
 Function Get-ADDNSZoneDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
     $DNSServerZoneDetails = @()
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator    
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential).PDCEmulator    
     
     $DNSZones = Get-DnsServerZone -ComputerName $PDC | Where-Object { -Not $_.IsReverseLookupZone } | Select-Object DistinguishedName, ZoneName, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, MasterServers, SecureSecondaries, SecondaryServers
 
     ForEach ($DNSZone in $DNSZones) {
         If ($DNSZone.DistinguishedName) {
-            $Info = (Get-DnsServerZone -zoneName $DNSZone.ZoneName -ComputerName $PDC | Where-Object { -NOT $_.IsReverseLookupZone -AND $_.ZoneType -ne "Forwarder" }).Distinguishedname | ForEach-Object { Get-ADOBject -Identity $_ -Server $PDC -Properties ProtectedFromAccidentalDeletion, Created }
+            $Info = (Get-DnsServerZone -zoneName $DNSZone.ZoneName -ComputerName $PDC | Where-Object { -NOT $_.IsReverseLookupZone -AND $_.ZoneType -ne "Forwarder" }).Distinguishedname | ForEach-Object { Get-ADObject -Identity $_ -Server $PDC -Credential $Credential -Properties ProtectedFromAccidentalDeletion, Created }
         }
         Else {
             $Info = [PSCustomObject]@{
@@ -224,21 +240,22 @@ Function Get-ADGroupMemberRecursive {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$GroupName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$GroupName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
     
-    $Domain = (Get-ADDomain -Identity $DomainName)
+    $Domain = (Get-ADDomain -Identity $DomainName -Credential $Credential)
     $PDC = $Domain.PDCEmulator    
-    $members = (Get-ADGroup -Identity $GroupName -Server $PDC -Properties Members).members
+    $members = (Get-ADGroup -Identity $GroupName -Server $PDC -Credential $Credential -Properties Members).members
 
     $membersRecursive = @()
     foreach ($member in $members) {
         If ($member.Substring($member.IndexOf("DC=")) -eq $Domain.DistinguishedName) {
-            if ((Get-ADObject -identity $member -server $PDC).Objectclass -eq "group" ) { 
-                $membersRecursive += Get-ADGroupMemberRecursive -GroupName $member -DomainName $Domain.DNSRoot
+            if ((Get-ADObject -identity $member -server $PDC -Credential $Credential).Objectclass -eq "group" ) { 
+                $membersRecursive += Get-ADGroupMemberRecursive -GroupName $member -DomainName $Domain.DNSRoot -Credential $Credential
             }
             else {
-                $membersRecursive += Get-ADUser -identity $member -Server $PDC | Select-Object Name
+                $membersRecursive += Get-ADUser -identity $member -Server $PDC  -Credential $Credential | Select-Object Name
             }
         }
     }
@@ -249,14 +266,15 @@ Function Get-ADGroupMemberRecursive {
 Function Get-AdminCountDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
     
     $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
-    $protectedGroups = (Get-ADGroup -Filter * -Server $PDC -properties adminCount | Where-Object { $_.adminCount -eq 1 }).Name
+    $protectedGroups = (Get-ADGroup -Filter * -Server $PDC -Credential $Credential -properties adminCount | Where-Object { $_.adminCount -eq 1 }).Name
 
-    $ProtectedUsers = ($protectedGroups | ForEach-Object { Get-ADGroupMemberRecursive -GroupName $_ -DomainName $DomainName } | Sort-Object Name -Unique).Name
-    $UserWithAdminCount = (Get-ADUser -Filter * -Server $PDC -Properties AdminCount | Where-Object { $_.adminCount -eq 1 }).Name
+    $ProtectedUsers = ($protectedGroups | ForEach-Object { Get-ADGroupMemberRecursive -GroupName $_ -DomainName $DomainName -Credential $Credential } | Sort-Object Name -Unique).Name
+    $UserWithAdminCount = (Get-ADUser -Filter * -Server $PDC -Credential $Credential -Properties AdminCount | Where-Object { $_.adminCount -eq 1 }).Name
     $UndesiredAdminCount = (Compare-Object -ReferenceObject $UserWithAdminCount -DifferenceObject $ProtectedUsers | Where-Object { $_.SideIndicator -eq '<=' -AND $_.InputObject -ne "krbtgt" }).InputObject
 
     $AdminCountDetails = [PSCustomObject]@{
@@ -272,9 +290,13 @@ Function Get-AdminCountDetails {
 
 # Return the details of DHCP Servers
 Function Get-ADDHCPDetails {  
+    [CmdletBinding()]
+    Param(    
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+    )
     
     $configPartition = (Get-ADforest).PartitionsContainer.Replace("CN=Partitions,", "")
-    $AllDHCPServers = (Get-ADObject -SearchBase $configPartition -Filter "objectclass -eq 'dhcpclass' -AND Name -ne 'dhcproot'").Name
+    $AllDHCPServers = (Get-ADObject -SearchBase $configPartition -Filter "objectclass -eq 'dhcpclass' -AND Name -ne 'dhcproot'" -Credential $Credential).Name
     $DHCPDetails = @()
 
     foreach ($dhcpserver in $AllDHCPServers) {
@@ -308,14 +330,15 @@ Function Get-ADDHCPDetails {
 Function Get-EmptyOUDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential).PDCEmulator
 
-    $AllOUs = Get-ADOrganizationalUnit -Filter * -Server $PDC -Properties * 
+    $AllOUs = Get-ADOrganizationalUnit -Filter * -Server $PDC -Credential $Credential -Properties * 
 
-    $EmptyOUs = ($AllOUs | Select-Object Name, CanonicalName, DistinguishedName, @{Name = 'ObjectCount'; Expression = { (Get-ADObject -Server $PDC -Filter { ObjectClass -eq 'user' -or ObjectClass -eq 'group' -or ObjectClass -eq 'computer' } -SearchBase $_.DistinguishedName).Count } } | Where-Object { $_.ObjectCount -eq 0 }).CanonicalName
+    $EmptyOUs = ($AllOUs | Select-Object Name, CanonicalName, DistinguishedName, @{Name = 'ObjectCount'; Expression = { (Get-ADObject -Server $PDC -Credential $Credential -Filter { ObjectClass -eq 'user' -or ObjectClass -eq 'group' -or ObjectClass -eq 'computer' } -SearchBase $_.DistinguishedName).Count } } | Where-Object { $_.ObjectCount -eq 0 }).CanonicalName
 
     $EmptyOUDetails = [PSCustomObject]@{
         Domain       = $domainname
@@ -331,14 +354,15 @@ Function Get-EmptyOUDetails {
 Function Get-ADObjectsToClean {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
     $ObjectsToClean = @()
-    $Domain = Get-ADDomain -Identity $DomainName
+    $Domain = Get-ADDomain -Identity $DomainName -Credential $Credential
     $PDC = $Domain.PDCEmulator
-    $orphanedObj = Get-ADObject -Filter * -SearchBase "cn=LostAndFound,$($Domain.DistinguishedName)" -SearchScope OneLevel -Server $PDC    
-    $lingConfReplObj = Get-ADObject -LDAPFilter "(cn=*\0ACNF:*)" -SearchBase $Domain.DistinguishedName -SearchScope SubTree -Server $PDC
+    $orphanedObj = Get-ADObject -Filter * -SearchBase "cn=LostAndFound,$($Domain.DistinguishedName)" -SearchScope OneLevel -Server $PDC -Credential $Credential
+    $lingConfReplObj = Get-ADObject -LDAPFilter "(cn=*\0ACNF:*)" -SearchBase $Domain.DistinguishedName -SearchScope SubTree -Server $PDC -Credential $Credential
 
     $ObjectsToClean = [PSCustomObject]@{
         Domain               = $domainname        
@@ -355,7 +379,8 @@ Function Get-ADObjectsToClean {
 Function Get-ADGPODetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
     
     $AllGPOs = Get-GPO -All -Domain $DomainName
@@ -368,7 +393,7 @@ Function Get-ADGPODetails {
         $LinkedButDeactivatedGPOs = (Compare-Object -ReferenceObject $DeactivatedGPOs -DifferenceObject $LinkedGPOs -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object InputObject).InputObject
     }
 
-    $GPOsAtRootLevel = (Get-GPInheritance -Target (Get-ADDomain -Identity $DomainName).DistinguishedName).Gpolinks.DisplayName -join "`n"
+    $GPOsAtRootLevel = (Get-GPInheritance -Target (Get-ADDomain -Identity $DomainName -credential $Credential).DistinguishedName).Gpolinks.DisplayName -join "`n"
 
     $UnlinkedGPODetails = [PSCustomObject]@{
         Domain                      = $domainname
@@ -393,11 +418,12 @@ Function Get-ADGPODetails {
 Function Get-ADPasswordPolicy {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
-    $PwdPolicy = Get-ADDefaultDomainPasswordPolicy -Server $PDC
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential).PDCEmulator
+    $PwdPolicy = Get-ADDefaultDomainPasswordPolicy -Server $PDC -Credential $Credential
 
     $DefaultPasswordPolicy = [PSCustomObject]@{
         DomainName           = $DomainName
@@ -418,22 +444,23 @@ Function Get-ADPasswordPolicy {
 Function Get-FineGrainedPasswordPolicy {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
     $FGPwdPolicyDetails = @()
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
-    $DomainFL = (Get-ADDomain -Identity $DomainName).DomainMode
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential).PDCEmulator
+    $DomainFL = (Get-ADDomain -Identity $DomainName -Credential $Credential).DomainMode
     
     if ( $DomainFL -in ("Windows2008Domain", "Windows2008R2Domain", "Windows2012Domain", "Windows2012R2Domain", "Windows2016Domain")) {		
-        $FGPwdPolicy = Get-ADFineGrainedPasswordPolicy -Filter * -Server $PDC
+        $FGPwdPolicy = Get-ADFineGrainedPasswordPolicy -Filter * -Server $PDC -Credential $Credential
 
         ForEach ($FGPP in $FGPwdPolicy) {
-            $Obj = $FGPP.AppliesTo | ForEach-Object { Get-ADObject $_ -Server $PDC | Select-Object DistinguishedName , Name, ObjectClass } 
+            $Obj = $FGPP.AppliesTo | ForEach-Object { Get-ADObject $_ -Server $PDC -Credential $Credential | Select-Object DistinguishedName , Name, ObjectClass } 
             $Users = $Obj | Where-Object { $_.ObjectClass -eq "User" }
-            $UserList = $Users | ForEach-Object { Get-ADUser -Identity $_.DistinguishedName -Server $PDC }
+            $UserList = $Users | ForEach-Object { Get-ADUser -Identity $_.DistinguishedName -Server $PDC -Credential $Credential }
             $Groups = $Obj | Where-Object { $_.ObjectClass -eq "Group" }
-            $GroupList = $Groups | ForEach-Object { Get-ADGroup -Identity $_.DistinguishedName -Server $PDC }
+            $GroupList = $Groups | ForEach-Object { Get-ADGroup -Identity $_.DistinguishedName -Server $PDC -Credential $Credential }
             
             $FGPwdPolicyDetails += [PSCustomObject]@{
                 DomainName           = $DomainName
@@ -460,14 +487,12 @@ Function Get-ADDomainDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)]$Logo,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)]$ReportPath,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)]$CSSHeader = $header
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
     $UndesiredFeatures = ("ADFS-Federation", "DHCP", "Telnet-Client", "WDS", "Web-Server", "Web-Application-Proxy")
 
-    $dcs = Get-ADDomainController -Filter * -Server $DomainName
+    $dcs = Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential
 
     $LowestOSversion = ($dcs.OperatingSystemVersion | Measure-Object -Minimum).Minimum
     switch ($LowestOSversion) {
@@ -481,9 +506,9 @@ Function Get-ADDomainDetails {
         default { $possibleDFL += "Windows Server 2003" }
     }
     
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential).PDCEmulator
 
-    if ((Get-ADObject -Server $PDC -SearchBase (Get-ADDomainController -Identity $PDC -Server $PDC).ComputerObjectDN -Filter { name -like "SYSVOL*" } -Properties replPropertyMetaData).ReplPropertyMetadata.count -gt 0) {
+    if ((Get-ADObject -Server $PDC -SearchBase (Get-ADDomainController -Identity $PDC -Server $PDC -Credential $Credential).ComputerObjectDN -Filter { name -like "SYSVOL*" } -Properties replPropertyMetaData).ReplPropertyMetadata.count -gt 0) {
         $sysvolStatus = "DFSR"
     }
     else {
@@ -492,7 +517,7 @@ Function Get-ADDomainDetails {
 
     # It needs WinRM being enabled on PDC 
     try {
-        $FSR2DFSRStatus = invoke-command -ComputerName $PDC -ScriptBlock { ((dfsrmig.exe /GetGlobalState )[0].replace("'", "") -split ": ")[1] }
+        $FSR2DFSRStatus = invoke-command -ComputerName $PDC -ScriptBlock { ((dfsrmig.exe /GetGlobalState )[0].replace("'", "") -split ": ")[1] } -Credential $Credential
     }
     catch {
         $FSR2DFSRStatus = "WinRM access denied on PDC"
@@ -508,21 +533,23 @@ Function Get-ADDomainDetails {
                 ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0),
                 ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0),
                 ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0),
-                ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0)
-            }
+                ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0),
+                (w32tm /query /source)
+            }  -Credential $Credential
 
             $DomainDetails += [PSCustomObject]@{
                 Domain                      = $domain
-                DomainFunctionLevel         = (Get-ADDomain -Identity $DomainName).DomainMode
+                DomainFunctionLevel         = (Get-ADDomain -Identity $DomainName -Credential $Credential).DomainMode
                 PossibleDomainFunctionLevel = $possibleDFL
                 DCName                      = $dc.Name
                 Site                        = $dc.site
                 OSVersion                   = $dc.OperatingSystem
                 IPAddress                   = $dc.IPv4Address
-                FSMORoles                   = (Get-ADDomainController -Identity $dc -Server $dc | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
+                FSMORoles                   = (Get-ADDomainController -Identity $dc -Server $dc -Credential $Credential | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
                 Sysvol                      = $sysvolStatus
                 FSR2DFSR                    = $FSR2DFSRStatus
-                LAPS                        = $null -ne (Get-ADObject -LDAPFilter "(name=ms-Mcs-AdmPwd)" -Server $PDC)  
+                LAPS                        = $null -ne (Get-ADObject -LDAPFilter "(name=ms-Mcs-AdmPwd)" -Server $PDC -Credential $Credential)
+                NTPServer                   = ($Results[8] | Select-Object -Unique) -join "`n"
                 SMB1Status                  = ($Results[0]).EnableSMB1Protocol
                 SSL2Client                  = $Results[2]
                 SSL2Server                  = $Results[3]
@@ -534,7 +561,7 @@ Function Get-ADDomainDetails {
                 NetlogonParameter           = ($Results[1]).vulnerablechannelallowlist
                 ReadOnly                    = $dc.IsReadOnly
                 IsVirtual                   = ((Get-CimInstance Win32_ComputerSystem -ComputerName $dc).model).Contains("Virtual")
-                UndesiredFeatures           = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject  (Get-WindowsFeature -ComputerName $dc | Where-Object Installed).Name -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
+                UndesiredFeatures           = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject  (Get-WindowsFeature -ComputerName $dc  -Credential $Credential | Where-Object Installed).Name -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
             }
         }
     }
@@ -546,23 +573,24 @@ Function Get-ADDomainDetails {
 Function Get-ADSiteDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential).PDCEmulator
 
-    $sites = Get-ADReplicationSite -Filter * -Server $PDC -Properties WhenCreated, WhenChanged, ProtectedFromAccidentalDeletion, Subnets
+    $sites = Get-ADReplicationSite -Filter * -Server $PDC -Credential $Credential -Properties WhenCreated, WhenChanged, ProtectedFromAccidentalDeletion, Subnets
     $SiteDetails = @()
 
     foreach ($site in $sites) {
-        $dcs = @(Get-ADDomainController -Filter { Site -eq $site.Name } -Server $PDC)
+        $dcs = @(Get-ADDomainController -Filter { Site -eq $site.Name } -Server $PDC -Credential $Credential)
         if ($dcs.Count -eq 0) {
             $SiteDetails += New-Object PSObject -Property @{
                 DomainName                          = $DomainName
                 SiteName                            = $site.Name
                 SiteCreated                         = $Site.WhenCreated
                 SiteModified                        = $Site.WhenChanged
-                Subnets                             = ($site.subnets | Get-ADReplicationSubnet -Server $PDC | Select-Object Name).Name -join "`n"
+                Subnets                             = ($site.subnets | Get-ADReplicationSubnet -Server $PDC -Credential $Credential | Select-Object Name).Name -join "`n"
                 DCinSite                            = "No DC in Site"
                 SiteLink                            = $link.Name
                 SiteLinkType                        = $link.InterSiteTransportProtocol
@@ -574,14 +602,14 @@ Function Get-ADSiteDetails {
         }
         else {
             foreach ($dc in $dcs) {
-                $links = Get-ADReplicationSiteLink -Filter * -Server $PDC -Properties InterSiteTransportProtocol, replInterval, ProtectedFromAccidentalDeletion | Where-Object { $_.sitesIncluded -contains $site.DistinguishedName }
+                $links = Get-ADReplicationSiteLink -Filter * -Server $PDC -Credential $Credential -Properties InterSiteTransportProtocol, replInterval, ProtectedFromAccidentalDeletion | Where-Object { $_.sitesIncluded -contains $site.DistinguishedName }
                 foreach ($link in $links) {
                     $SiteDetails += New-Object PSObject -Property @{
                         DomainName                          = $DomainName
                         SiteName                            = $site.Name
                         SiteCreated                         = $Site.WhenCreated
                         SiteModified                        = $Site.WhenChanged
-                        Subnets                             = ($site.subnets | Get-ADReplicationSubnet -Server $PDC | Select-Object Name).Name -join "`n"
+                        Subnets                             = ($site.subnets | Get-ADReplicationSubnet -Server $PDC  -Credential $Credential | Select-Object Name).Name -join "`n"
                         DCinSite                            = $dc.Name
                         SiteLink                            = $link.Name
                         SiteLinkType                        = $link.InterSiteTransportProtocol
@@ -604,11 +632,12 @@ Function Get-ADSiteDetails {
 Function Get-PrivGroupDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential        
     )
 
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
-    $domainSID = (Get-ADDomain $DomainName -server $PDC).domainSID.Value
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential).PDCEmulator
+    $domainSID = (Get-ADDomain $DomainName -server $PDC -Credential $Credential).domainSID.Value
     $PrivGroupSIDs = @(@("Domain Admins", ($domainSID + "-512")), 
         @("Domain Guests", ($domainSID + "-514")), 
         @("Cert Publishers", ($domainSID + "-517")), 
@@ -624,9 +653,9 @@ Function Get-PrivGroupDetails {
         $PrivGroups += [PSCustomObject]@{
             DomainName        = $DomainName
             OriginalGroupName = $groupSID[0]
-            GroupName         = (Get-ADGroup -Server $PDC -Identity $GroupSID[1]).Name
-            MemberCount       = @(Get-ADGroupMember -Server $PDC -Identity $GroupSID[1] -Recursive ).count
-            IsRenamed         = $groupSID[0] -ne (Get-ADGroup -Server $PDC -Identity $GroupSID[1]).Name
+            GroupName         = (Get-ADGroup -Server $PDC -Identity $GroupSID[1] -Credential $Credential).Name
+            MemberCount       = @(Get-ADGroupMember -Server $PDC -Credential $Credential -Identity $GroupSID[1] -Recursive ).count
+            IsRenamed         = $groupSID[0] -ne (Get-ADGroup -Server $PDC -Credential $Credential -Identity $GroupSID[1]).Name
         }
     }
 
@@ -637,13 +666,14 @@ Function Get-PrivGroupDetails {
 Function Get-ADGroupDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
     )
 
     $GroupDetails = @()
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential).PDCEmulator
 
-    $AllGroups = Get-ADGroup -Filter { GroupCategory -eq "Security" } -Properties GroupScope, Members -Server $PDC
+    $AllGroups = Get-ADGroup -Filter { GroupCategory -eq "Security" } -Properties GroupScope, Members -Server $PDC -Credential $Credential
     $GroupScopes = $AllGroups | Group-Object GroupScope
 
     ForEach ($GroupScope in $GroupScopes) {
@@ -665,12 +695,13 @@ Function Get-ADGroupDetails {
 Function Get-ADUserDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
     )
 
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential).PDCEmulator
 
-    $AllUsers = Get-ADUser -Filter * -Server $PDC -Properties SamAccountName, Enabled, whenCreated, PasswordLastSet, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, LastLogonDate, LockedOut
+    $AllUsers = Get-ADUser -Filter * -Server $PDC -Credential $Credential -Properties SamAccountName, Enabled, whenCreated, PasswordLastSet, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, LastLogonDate, LockedOut
 
     $UserDetails = [PSCustomObject]@{
         DomainName           = $DomainName
@@ -692,17 +723,18 @@ Function Get-ADUserDetails {
 Function Get-BuiltInUserDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
     )
 
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
-    $domainSID = (Get-ADDomain $DomainName -server $PDC).domainSID.Value
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential).PDCEmulator
+    $domainSID = (Get-ADDomain $DomainName -server $PDC -Credential $Credential).domainSID.Value
     $BuiltInUserSIDs = @(@("Administrator", ($domainSID + "-500")), @("Guest", ($domainSID + "-501")), @("krbtgt", ($domainSID + "-502")))
 
     $BuiltInUsers = @()
 
     ForEach ($UserSID in $BuiltInUserSIDs ) {
-        $User = Get-ADUser -Server $PDC -Identity $UserSID[1] -Properties SamAccountName, WhenCreated, LastLogonDate, Enabled, LastBadPasswordAttempt, PasswordLastSet
+        $User = Get-ADUser -Server $PDC -Credential $Credential -Identity $UserSID[1] -Properties SamAccountName, WhenCreated, LastLogonDate, Enabled, LastBadPasswordAttempt, PasswordLastSet
     
         $BuiltInUsers += [PSCustomObject]@{
             DomainName             = $DomainName
@@ -724,13 +756,14 @@ Function Get-BuiltInUserDetails {
 Function Get-OrphanedFSP {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
     )
 
     $orphanedFSPs = @()
-    $Domain = Get-ADDomain -Identity $DomainName
+    $Domain = Get-ADDomain -Identity $DomainName -Credential $Credential
     $PDC = $Domain.PDCEmulator
-    $AllFSPs = Get-ADObject -Filter { ObjectClass -eq 'ForeignSecurityPrincipal' } -Server $PDC
+    $AllFSPs = Get-ADObject -Filter { ObjectClass -eq 'ForeignSecurityPrincipal' } -Server $PDC -Credential $Credential
     
     <# NT AUTHORITY\INTERACTIVE, NT AUTHORITY\Authenticated Users, NT AUTHORITY\IUSR, NT AUTHORITY\ENTERPRISE DOMAIN CONTROLLERS #>
     $KnownFSPs = (("CN=S-1-5-4,CN=ForeignSecurityPrincipals," + $Domain), ("CN=S-1-5-11,CN=ForeignSecurityPrincipals," + $Domain), ("CN=S-1-5-17,CN=ForeignSecurityPrincipals," + $Domain), ("CN=S-1-5-9,CN=ForeignSecurityPrincipals," + $Domain))
@@ -758,15 +791,16 @@ Function Get-OrphanedFSP {
 Function Get-DomainServerDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
     )
 
     $DomainServerDetails = @()
     $Today = Get-Date
     $InactivePeriod = 90
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential).PDCEmulator
     
-    $Servers = Get-ADComputer -Filter { OperatingSystem -Like "*Server*" } -Properties OperatingSystem, PasswordLastSet -Server $PDC 
+    $Servers = Get-ADComputer -Filter { OperatingSystem -Like "*Server*" } -Properties OperatingSystem, PasswordLastSet -Server $PDC -Credential $Credential
     $OSs = $Servers | Group-Object OperatingSystem | Select-Object Name, Count
 
     ForEach ($OS in $OSs) {
@@ -784,15 +818,16 @@ Function Get-DomainServerDetails {
 Function Get-DomainClientDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
     )
 
     $DomainClientDetails = @()
     $Today = Get-Date
     $InactivePeriod = 90
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential).PDCEmulator
 
-    $Workstations = Get-ADComputer -Filter { OperatingSystem -Notlike "*Server*" } -Properties OperatingSystem, PasswordLastSet -Server $PDC 
+    $Workstations = Get-ADComputer -Filter { OperatingSystem -Notlike "*Server*" } -Properties OperatingSystem, PasswordLastSet -Server $PDC -Credential $Credential
     $OSs = $Workstations | Group-Object OperatingSystem | Select-Object Name, Count
 
     If ($OSs.count -gt 0) {
@@ -812,39 +847,32 @@ Function Get-DomainClientDetails {
 # The main function to perform assessment of AD Forest and produce results as html file
 Function Get-ADForestDetails {
     [CmdletBinding()]
-    Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)]$ForestName = (Get-ADForest).RootDomain,
+    Param(        
         [Parameter(ValueFromPipeline = $true, mandatory = $false)]$Logo = $logopath,
         [Parameter(ValueFromPipeline = $true, mandatory = $false)]$ReportPath = $ReportPath1,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)]$CSSHeader = $header
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)]$CSSHeader = $header,
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )    
 
-    if ( $ForestName.Length -gt 0 ) {	
-        # Collecting information about specified Forest configuration
-        $ForestInfo = Get-ADForest -Identity $ForestName	
-    }        
-    else {
-        # Collecting information about current Forest configuration
-        $ForestInfo = Get-ADForest
-    }
-
+    # Collecting information about current Forest configuration
+    $ForestInfo = Get-ADForest -Current LocalComputer -Credential $Credential
     $forest = $ForestInfo.RootDomain
     $allDomains = $ForestInfo.Domains
     $ForestGC = $ForestInfo.GlobalCatalogs    
     $forestFL = $ForestInfo.ForestMode
     $FSMODomainNaming = $ForestInfo.DomainNamingMaster
     $FSMOSchema = $ForestInfo.SchemaMaster
-    $forestDomainSID = (Get-ADDomain $ForestName).domainSID.Value    
+    $forestDomainSID = (Get-ADDomain $forest -Server $forest -Credential $Credential).domainSID.Value    
 
     $SchemaPartition = $ForestInfo.PartitionsContainer.Replace("CN=Partitions", "CN=Schema")
-    $SchemaVersion = Get-ADObject -Server $forest -Identity $SchemaPartition -Properties * | Select-Object objectVersion
+    $SchemaVersion = Get-ADObject -Server $forest -Identity $SchemaPartition -Credential $Credential -Properties * | Select-Object objectVersion
 
     <#     $forestDN = $ForestInfo.PartitionsContainer.Replace("CN=Partitions,CN=Configuration,", "") #>
     $configPartition = $ForestInfo.PartitionsContainer.Replace("CN=Partitions,", "")
 
     # Check if AD Recycle Bin support is enabled
     if ( $forestFL -in ("Windows2008R2Forest", "Windows2012Forest", "Windows2012R2Forest", "Windows2016Forest")) {
-        $ADR = (Get-ADOptionalFeature 'Recycle Bin Feature').EnabledScopes.count
+        $ADR = (Get-ADOptionalFeature 'Recycle Bin Feature' -Server $forest -Credential $Credential).EnabledScopes.count
         if ( $ADR.Count -ne 0 ) {		
             $ADRSupport = "Enabled"		
         }		
@@ -865,7 +893,7 @@ Function Get-ADForestDetails {
         69 { $ForestSchemaVersion = "Windows Server 2012 R2" }
         87 { $ForestSchemaVersion = "Windows Server 2016" }
         88 { $ForestSchemaVersion = "Windows Server 2019/2022" }
-        default { Write-Host -ForegroundColor red "unknown forest schema version - "$SchemaVersion.objectVersion }
+        default { $ForestSchemaVersion = "unknown forest schema version: ($SchemaVersion.objectVersion)" }
     }
 
     switch ($forestFL) {
@@ -879,7 +907,7 @@ Function Get-ADForestDetails {
         default { $ForestFunctionalLevel = "Unknown Forest Functional Level: $forestFL" }
     }
 
-    $tombstoneLifetime = (Get-ADobject -Server $forest -Identity "cn=Directory Service,cn=Windows NT,cn=Services,$configPartition" -Properties tombstoneLifetime).tombstoneLifetime
+    $tombstoneLifetime = (Get-ADobject -Server $forest -Identity "cn=Directory Service,cn=Windows NT,cn=Services,$configPartition" -Credential $Credential -Properties tombstoneLifetime).tombstoneLifetime
 
     if ($null -eq $tombstoneLifetime) {
         $tombstoneLifetime = 60
@@ -900,21 +928,21 @@ Function Get-ADForestDetails {
     $ForestSummary = ($ForestDetails | ConvertTo-Html -As List -Property ForestName, ForestFunctionLevel, ForestSchemaVersion, DomainNamingMaster, SchemaMaster, GlobalCatalogs, DomainCount, RecycleBinSupport, TombstoneLifetime -Fragment -PreContent "<h2>Forest Summary: $forest</h2>")
 
     $entGroupID = $forestDomainSID + "-519"
-    $enterpriseAdminsNo = @(Get-ADGroup -Server $forest -Identity $entGroupID | Get-ADGroupMember -Recursive).count
+    $enterpriseAdminsNo = @(Get-ADGroup -Server $forest -Identity $entGroupID -Credential $Credential | Get-ADGroupMember -Recursive).count
 
     $schemaGroupID = $forestDomainSID + "-518"
-    $schmaAdminsNo = @(Get-ADGroup -Server $forest -Identity $schemaGroupID | Get-ADGroupMember -Recursive).count
+    $schmaAdminsNo = @(Get-ADGroup -Server $forest -Identity $schemaGroupID -Credential $Credential | Get-ADGroupMember -Recursive).count
 
     $ForestPrivGroups = [PSCustomObject]@{
         ForestName             = $forest
-        EnterpriseAdminGroup   = (Get-ADGroup -Server $forest -Identity $entGroupID).Name
+        EnterpriseAdminGroup   = (Get-ADGroup -Server $forest -Identity $entGroupID -Credential $Credential).Name
         EntAdminMemberCount    = $enterpriseAdminsNo
-        SchemaAdminGroup       = (Get-ADGroup -Server $forest -Identity $schemaGroupID).Name
+        SchemaAdminGroup       = (Get-ADGroup -Server $forest -Identity $schemaGroupID -Credential $Credential).Name
         SchemaAdminMemberCount = $schmaAdminsNo
     }
 
     $ForestPrivGroupsSummary = ($ForestPrivGroups | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Forest-wide Priviledged groups Summary</h2>") -replace "`n", "<br>"
-    $PKIDetails = Get-PKIDetails -ForestName $forest
+    $PKIDetails = Get-PKIDetails -ForestName $forest -Credential $Credential
 
     $TrustDetails = @()
     $DomainDetails = @()    
@@ -938,35 +966,35 @@ Function Get-ADForestDetails {
     $GPODetails = @()
 
     ForEach ($domain in $allDomains) {        
-        $TrustDetails += Get-ADTrustDetails -DomainName $domain        
-        $DomainDetails += Get-ADDomainDetails -DomainName $domain
-        $SiteDetails += Get-ADSiteDetails -DomainName $domain
-        $privGroupDetails += Get-PrivGroupDetails -DomainName $domain        
-        $UserDetails += Get-ADUserDetails -DomainName $domain
-        $BuiltInUserDetails += Get-BuiltInUserDetails -DomainName $domain
-        $GroupDetails += Get-ADGroupDetails -DomainName $domain
-        $UndesiredAdminCount += Get-AdminCountDetails -DomainName $domain
-        $PasswordPolicyDetails += Get-ADPasswordPolicy -DomainName $domain        
-        $FGPwdPolicyDetails += Get-FineGrainedPasswordPolicy -DomainName $domain
-        $ObjectsToClean += Get-ADObjectsToClean -DomainName $domain
-        $OrphanedFSPDetails += Get-OrphanedFSP -DomainName $domain
-        $ServerOSDetails += Get-DomainServerDetails -DomainName $domain
-        $ClientOSDetails += Get-DomainClientDetails -DomainName $domain
-        $ADFSDetail, $ADSyncDetail = Get-ADFSDetails -DomainName $domain
+        $TrustDetails += Get-ADTrustDetails -DomainName $domain -credential $Credential
+        $DomainDetails += Get-ADDomainDetails -DomainName $domain -credential $Credential
+        $SiteDetails += Get-ADSiteDetails -DomainName $domain -credential $Credential
+        $privGroupDetails += Get-PrivGroupDetails -DomainName $domain -credential $Credential
+        $UserDetails += Get-ADUserDetails -DomainName $domain -credential $Credential
+        $BuiltInUserDetails += Get-BuiltInUserDetails -DomainName $domain -credential $Credential
+        $GroupDetails += Get-ADGroupDetails -DomainName $domain -credential $Credential
+        $UndesiredAdminCount += Get-AdminCountDetails -DomainName $domain -credential $Credential
+        $PasswordPolicyDetails += Get-ADPasswordPolicy -DomainName $domain -credential $Credential
+        $FGPwdPolicyDetails += Get-FineGrainedPasswordPolicy -DomainName $domain -credential $Credential
+        $ObjectsToClean += Get-ADObjectsToClean -DomainName $domain -credential $Credential
+        $OrphanedFSPDetails += Get-OrphanedFSP -DomainName $domain -credential $Credential
+        $ServerOSDetails += Get-DomainServerDetails -DomainName $domain -credential $Credential
+        $ClientOSDetails += Get-DomainClientDetails -DomainName $domain -credential $Credential
+        $ADSyncDetail, $ADFSDetail = Get-ADFSDetails -DomainName $domain -credential $Credential
+        $ADFSDetail = $ADFSDetail | Sort-Object * -Unique
         $ADFSDetails += $ADFSDetail
+        $ADSyncDetail = $ADSyncDetail | Sort-Object * -Unique
         $ADSyncDetails += $ADSyncDetail        
-        $ADFSDetails += Get-ADFSDetails -DomainName $domain
-        $DNSServerDetails += Get-ADDNSDetails -DomainName $domain
-        $DNSZoneDetails += Get-ADDNSZoneDetails -DomainName $domain
-        $EmptyOUDetails += Get-EmptyOUDetails -DomainName $domain
-        $GPODetails += Get-ADGPODetails -DomainName $domain        
+        $DNSServerDetails += Get-ADDNSDetails -DomainName $domain -credential $Credential
+        $DNSZoneDetails += Get-ADDNSZoneDetails -DomainName $domain -credential $Credential
+        $EmptyOUDetails += Get-EmptyOUDetails -DomainName $domain -credential $Credential
+        $GPODetails += Get-ADGPODetails -DomainName $domain -credential $Credential
     }
-
 
     If ($TrustDetails) {
         $TrustSummary = ($TrustDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Trust Summary</h2>")
     }
-    $DHCPDetails = Get-ADDHCPDetails
+    $DHCPDetails = Get-ADDHCPDetails -Credential $Credential
     If ($DHCPDetails) {
         $DHCPSummary = ($DHCPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Summary</h2>") -replace "`n", "<br>"
     }
@@ -977,9 +1005,7 @@ Function Get-ADForestDetails {
         $ADSyncSummary = $ADSyncDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADSync servers Summary</h2>"        
     }
     If ($ADFSDetails) {
-        $ADFSSummary = $ADFSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADFS servers Summary</h2>"        
-        $ADFSDetails.count
-        $ADFSDetails.servername -eq ""
+        $ADFSSummary = $ADFSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADFS servers Summary</h2>"            
     }    
     If ($ClientOSDetails) {        
         $ClientOSSummary = $ClientOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Client OS Summary</h2>"
@@ -1015,4 +1041,5 @@ Function Get-ADForestDetails {
     $ReportRaw | Out-File $ReportPath    
 }
 
-Get-ADForestDetails
+Write-Output "Carefully type Forest Enterprise Admin credentials:"
+Get-ADForestDetails -Credential (Get-Credential)
