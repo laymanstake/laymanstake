@@ -1132,10 +1132,10 @@ Function Get-ADForestDetails {
 }
 
 Clear-Host 
-Write-Output "Menu:`n" +
-"Option 1: Run script over entire forest`n" +
-"Option 2: Run script over single domain`n" +
-"Option 3: Press any other key to Quit"
+Write-Output "Menu:" 
+"Option 1: Run script over entire forest" 
+"Option 2: Run script over single domain" 
+"Option 3: Press any other key to Quit`n"
 
 $choice = Read-Host "Enter your choice: "
 
