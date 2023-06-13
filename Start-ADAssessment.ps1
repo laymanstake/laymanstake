@@ -897,10 +897,15 @@ Function Start-SecurityCheck {
             }
 
             switch ( (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "InactivityTimeoutSecs" -ErrorAction SilentlyContinue).InactivityTimeoutSecs ) {
-                { $_ -le 900 -AND $_ -ne 0 } { "900 or fewer second(s), but not 0: $($_)" }
+                { $_ -le 900 -AND $_ -ne 0 -AND $_ -ne $null } { "900 or fewer second(s), but not 0: $($_)" }
                 { $_ -eq 0 } { "0 second" }
-                { $_ -gt 900 } { "More than 900 seconds: $($_)" }
-                Default { "Policy not configured" }
+                { $_ -gt 900 } { "More than 900 seconds: $($_) seconds" }
+                Default { 
+                    switch ((Get-WmiObject -Class Win32_OperatingSystem).Caption ) {
+                        { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012*" } { "OS default: 900 second" }
+                        Default { "Unlimited" }
+                    }
+                }
             }
             
         }
@@ -1120,7 +1125,7 @@ Function Get-ADForestDetails {
     $ServerOSSummary = $ServerOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Server OS Summary</h2>"
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
     $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
-    $SecuritySummary = $SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Summary</h2>"
+    $SecuritySummary = $SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>"
 
     $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $SecuritySummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath    
