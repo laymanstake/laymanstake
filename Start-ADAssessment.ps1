@@ -857,6 +857,66 @@ Function Start-SecurityCheck {
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
     )
+
+    $SecuritySettings = @()
+    $DCs = (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).hostname
+
+    ForEach ($DC in $DCs) {
+        $settings = invoke-command -ComputerName $DC -Credential $Credential -ScriptBlock { 
+            switch ((Get-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Lsa" -ErrorAction SilentlyContinue | Select-Object LmCompatibilityLevel).LmCompatibilityLevel) {
+                5 { "Send NTLMv2 response only. Refuse LM & NTLM" }
+                4 { "Send NTLMv2 response only. Refuse LM" }
+                3 { "Send NTLMv2 response only" }
+                2 { "Send NTLM response only" }
+                1 { "Send LM & NTLM - use NTLMv2 session security if negotiated" }
+                0 { "Send LM & NTLM responses" }
+                Default {
+                    switch ((Get-WmiObject -Class Win32_OperatingSystem).Caption ) {
+                        { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012 R2*" } { "Send NTLMv2 response only. Refuse LM & NTLM" }
+                        Default { "Not configured, OS default assumed" }
+                    }
+                }
+            }
+
+            switch (Get-ItemPropertyValue -Path "HKLM:\System\CurrentControlSet\Control\Lsa" -Name "NoLMHash") {
+                1 { "Enabled" }
+                0 { "Disabled" }
+                Default { "Not configured" }
+            }
+
+            switch (Get-ItemPropertyValue -Path "HKLM:\System\CurrentControlSet\Control\Lsa" -Name "RestrictAnonymous") {
+                0 { "Disabled" }
+                1 { "Enabled" }
+                Default { "Not configured" }
+            }
+
+            switch (Get-ItemPropertyValue -Path "HKLM:\System\CurrentControlSet\Services\NTDS\Parameters" -Name "LDAPServerIntegrity") {
+                0 { "Does not requires signing" }
+                1 { "Requires signing" }
+                Default { "Not configured" }
+            }
+
+            switch ( (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "InactivityTimeoutSecs" -ErrorAction SilentlyContinue).InactivityTimeoutSecs ) {
+                { $_ -le 900 -AND $_ -ne 0 } { "900 or fewer second(s), but not 0: $($_)" }
+                { $_ -eq 0 } { "0 second" }
+                { $_ -gt 900 } { "More than 900 seconds: $($_)" }
+                Default { "Policy not configured" }
+            }
+            
+        }
+
+        $SecuritySettings += [PSCustomObject]@{
+            DomainName                                                                      = $DomainName
+            DCName                                                                          = $DC
+            "Network security: LAN Manager authentication level"                            = $settings[0]
+            "Network security: Do not store LAN Manager hash value on next password change" = $settings[1]
+            "Network access: Allow anonymous SID/Name translation"                          = $settings[2]
+            "Domain controller: LDAP server signing requirements"                           = $settings[3]
+            "Interactive logon: Machine inactivity limit"                                   = $settings[4]
+        }
+    }
+
+    return $SecuritySettings
 }
 
 # The main function to perform assessment of AD Forest and produce results as html file
@@ -982,6 +1042,7 @@ Function Get-ADForestDetails {
     $DNSZoneDetails = @()
     $EmptyOUDetails = @()
     $GPODetails = @()
+    $SecuritySettings = @()
 
     if (!($forestcheck)) {
         $allDomains = $ChildDomain
@@ -1011,6 +1072,7 @@ Function Get-ADForestDetails {
         $DNSZoneDetails += Get-ADDNSZoneDetails -DomainName $domain -credential $Credential
         $EmptyOUDetails += Get-EmptyOUDetails -DomainName $domain -credential $Credential
         $GPODetails += Get-ADGPODetails -DomainName $domain -credential $Credential
+        $SecuritySettings += Start-SecurityCheck -DomainName $domain -Credential $Credential
     }
 
     If ($TrustDetails) {
@@ -1058,8 +1120,9 @@ Function Get-ADForestDetails {
     $ServerOSSummary = $ServerOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Server OS Summary</h2>"
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
     $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
+    $SecuritySummary = $SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Summary</h2>"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $SecuritySummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath    
 }
 
@@ -1085,12 +1148,14 @@ switch ($choice) {
         else {
             $DomainName = (Get-ADDomain -Current LocalComputer).DNSRoot
         }
-        Write-Output "Carefully type Domain Admin credentials:"
+        Write-Output "Carefully type Domain Admin credentials for $DomainName :"
         [pscredential]$DomainCred = (Get-Credential)
         $forestcheck = $false
         Get-ADForestDetails -Credential $DomainCred -ChildDomain $DomainName
     }
     default {
+        Write-Output "Incorrect reponse, script terminated"
+        Start-Sleep 2
         exit
     }
 }
