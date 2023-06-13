@@ -851,6 +851,7 @@ Function Get-DomainClientDetails {
     return $DomainClientDetails
 }
 
+# returns value of select security settings for the given domain by checking all DCs
 Function Start-SecurityCheck {
     [CmdletBinding()]
     Param(
@@ -923,6 +924,66 @@ Function Start-SecurityCheck {
 
     return $SecuritySettings
 }
+
+# Returns the unused scripts from Netlogon share of the given domain
+function Get-UnusedNetlogonScripts {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$DomainName,
+
+        [Parameter(ValueFromPipeline = $true, Mandatory = $false)]
+        [pscredential]$Credential
+    )
+
+    $unusedScripts = @()
+    $referencedScripts = @()
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
+    $netlogonPath = "\\$DomainName\netlogon"
+    $scriptFiles = Get-ChildItem -Path $netlogonPath -File -Recurse | Select-Object -ExpandProperty FullName
+    $scriptFiles = $scriptfiles -replace $DomainName, $DomainName.Split(".")[0] | Where-Object { $_ -ne $null } | Sort-Object -Unique
+    
+
+    if ($scriptFiles) {
+        $gpos = Get-GPO -All -Domain $DomainName -Server $PDC
+
+        foreach ($gpo in $gpos) {
+            $gpoReport = if ($Credential) {
+                Invoke-Command -ScriptBlock { Get-GPOReport -Name $args[0] -ReportType Xml -Domain $args[1] -Server $args[2] } -Credential $Credential -ComputerName $PDC -ArgumentList $gpo.DisplayName, $DomainName, $PDC
+            }
+            else {
+                Invoke-Command -ScriptBlock { Get-GPOReport -Name $args[0] -ReportType Xml -Domain $args[1] -Server $args[2] } -ComputerName $PDC -ArgumentList $gpo.DisplayName, $DomainName, $PDC
+            }
+            
+            $gpoXml = [xml]$gpoReport
+
+            $computerScripts = $gpoXml.GPO.Computer.ExtensionData.Extension.Script | Select-Object -ExpandProperty Command
+            $userScripts = $gpoXml.GPO.User.ExtensionData.Extension.Script | Select-Object -ExpandProperty Command
+
+            $referencedScripts += $computerScripts, $userScripts
+        }
+        
+        $referencedScripts = $referencedScripts -replace $DomainName, $DomainName.Split(".")[0] | Where-Object { $_ -ne $null } | Sort-Object -Unique
+
+        if ($null -ne $referencedScripts ) {
+            $unused = Compare-Object -ReferenceObject $scriptFiles -DifferenceObject $referencedScripts | Where-Object { $_.SideIndicator -eq '<=' } | Select-Object -ExpandProperty InputObject
+        }
+        else {
+            $unused = $scriptFiles
+        }
+    }
+
+    $unused = $unused | Where-Object { $_ -ne $null } | Sort-Object -Unique
+
+    $unusedScripts = [PSCustomObject]@{
+        DomainName    = $DomainName
+        UnusedScripts = $unused -join "`n"        
+    }
+
+    return $unusedScripts
+}
+
 
 # The main function to perform assessment of AD Forest and produce results as html file
 Function Get-ADForestDetails {
@@ -1048,6 +1109,7 @@ Function Get-ADForestDetails {
     $EmptyOUDetails = @()
     $GPODetails = @()
     $SecuritySettings = @()
+    $unusedScripts = @()
 
     if (!($forestcheck)) {
         $allDomains = $ChildDomain
@@ -1078,6 +1140,7 @@ Function Get-ADForestDetails {
         $EmptyOUDetails += Get-EmptyOUDetails -DomainName $domain -credential $Credential
         $GPODetails += Get-ADGPODetails -DomainName $domain -credential $Credential
         $SecuritySettings += Start-SecurityCheck -DomainName $domain -Credential $Credential
+        $unusedScripts += Get-UnusedNetlogonScripts -DomainName $domain -Credential $Credential
     }
 
     If ($TrustDetails) {
@@ -1112,6 +1175,9 @@ Function Get-ADForestDetails {
     If ($OrphanedFSPDetails) {
         $OrphanedFSPSummary = ($OrphanedFSPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2> Orphaned foreign security principals Summary</h2>") -replace "`n", "<br>"
     }
+    If ($unusedScripts) {
+        $unusedScriptsSummary = ($unusedScripts | ConvertTo-Html -As Table  -Fragment -PreContent "<h2> Unused Netlogon Scripts summary </h2>") -replace "`n", "<br>"
+    }
 
     $DomainSummary = $DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>"
     $DNSSummary = ($DNSServerDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Servers Summary</h2>") -replace "`n", "<br>"
@@ -1127,7 +1193,7 @@ Function Get-ADForestDetails {
     $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
     $SecuritySummary = $SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $SecuritySummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $SecuritySummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath    
 }
 

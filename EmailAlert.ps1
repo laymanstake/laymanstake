@@ -13,7 +13,8 @@ function EmailAlert () {
 		[parameter(mandatory = $true)]$Body,
 		[parameter(mandatory = $false)]$SMTPServerPort = "25",		
 		[parameter(mandatory = $false)]$RecipientAddressCc,
-		[parameter(mandatory = $false)][switch]$SMTPServerSSL = $false
+		[parameter(mandatory = $false)][switch]$SMTPServerSSL = $false,
+		[parameter(mandatory = $false)][switch]$IsBodyHtml = $false
 	)
 
 	if ($RecipientAddressCc) {
@@ -27,6 +28,7 @@ function EmailAlert () {
 				SmtpServer = $SMTPServer
 				Port       = $SMTPServerPort
 				UseSsl     = $SMTPServerSSL
+				IsBodyHtml = $IsBodyHtml
 			}		
 			Send-MailMessage @email 
 		}
