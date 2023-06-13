@@ -1141,7 +1141,7 @@ $choice = Read-Host "Enter your choice: "
 
 switch ($choice) {
     '1' {
-        Write-Output "Carefully type Forest Enterprise Admin credentials:"
+        Write-Output "Type Forest Enterprise Admin credentials:"
         $forestcheck = $true
         Get-ADForestDetails -Credential (Get-Credential)        
     }   
@@ -1153,7 +1153,7 @@ switch ($choice) {
         else {
             $DomainName = (Get-ADDomain -Current LocalComputer).DNSRoot
         }
-        Write-Output "Carefully type Domain Admin credentials for $DomainName :"
+        Write-Output "Type Domain Admin credentials for $DomainName :"
         [pscredential]$DomainCred = (Get-Credential)
         $forestcheck = $false
         Get-ADForestDetails -Credential $DomainCred -ChildDomain $DomainName
