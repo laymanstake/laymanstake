@@ -929,12 +929,8 @@ Function Start-SecurityCheck {
 function Get-UnusedNetlogonScripts {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$DomainName,
-
-        [Parameter(ValueFromPipeline = $true, Mandatory = $false)]
-        [pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, Mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, Mandatory = $false)][pscredential]$Credential
     )
 
     $unusedScripts = @()
@@ -984,6 +980,88 @@ function Get-UnusedNetlogonScripts {
     return $unusedScripts
 }
 
+function Get-PotentialSvcAccount {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, Mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, Mandatory = $false)][pscredential]$Credential
+    )
+
+
+}
+
+# Returns the permissions on SYSVOL and NETLOGON shares of the given domain
+function Get-SysvolNetlogonPermissions {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, Mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, Mandatory = $false)][pscredential]$Credential
+    )
+
+    $SYSVOLPermsummary = @()
+    $NETLOGONPermsummary = @()
+    $SysvolNetlogonPermissions = @()
+    
+    $SYSVOLACLs = Get-ACL "\\$DomainName\SYSVOL"
+    $NETLOGONACLs = Get-ACL "\\$DomainName\NETLOGON"
+
+    ForEach ($SYSVOLACL in $SYSVOLACLs.Access) {
+        Switch ([long]$SYSVOLACL.FileSystemRights) {
+            2032127 { $AccessMask = "FullControl" }
+            1179785 { $AccessMask = "Read" }
+            1180063 { $AccessMask = "Read, Write" }
+            1179817 { $AccessMask = "ReadAndExecute" }
+            { -1610612736 } { $AccessMask = "ReadAndExecuteExtended" }                        
+            1245631 { $AccessMask = "ReadAndExecute, Modify, Write" }
+            1180095 { $AccessMask = "ReadAndExecute, Write" }
+            268435456 { $AccessMask = "FullControl (Sub Only)" }
+            { $_ -notmatch '^[0-9]+$' -AND -NOT($_ -in ("-536084480")) } { $AccessMask = $SYSVOLACL.FileSystemRights }
+            default { $AccessMask = "SpecialPermissions" }
+        }
+        $IdentityReference = $SYSVOLACL.Identityreference.Value
+        $AccessType = $AccessMask        
+        $AccessControlType = $SYSVOLACL.AccessControlType       
+
+        $SYSVOLPermsummary += ("$IdentityReference, $AccessType, $AccessControlType")        
+    }
+
+    ForEach ($NETLOGONACL in $NETLOGONACLs.Access) {        
+        Switch ([long]$NETLOGONACL.FileSystemRights) {
+            2032127 { $AccessMask = "FullControl" }
+            1179785 { $AccessMask = "Read" }
+            1180063 { $AccessMask = "Read, Write" }
+            1179817 { $AccessMask = "ReadAndExecute" }
+            { -1610612736 } { $AccessMask = "ReadAndExecuteExtended" }            
+            1245631 { $AccessMask = "ReadAndExecute, Modify, Write" }
+            1180095 { $AccessMask = "ReadAndExecute, Write" }
+            268435456 { $AccessMask = "FullControl (Sub Only)" }
+            { $_ -notmatch '^[0-9]+$' -AND -NOT($_ -in ("-536084480")) } { $AccessMask = $SYSVOLACL.FileSystemRights }
+            default { $AccessMask = "SpecialPermissions" }
+        }
+
+        $IdentityReference = $NETLOGONACL.Identityreference.Value
+        $AccessType = $AccessMask        
+        $AccessControlType = $NETLOGONACL.AccessControlType       
+
+        $NETLOGONPermsummary += ("$IdentityReference, $AccessType, $AccessControlType")
+    }
+
+    $SysvolNetlogonPermissions += [pscustomobject] @{
+        DomainName       = $DomainName
+        ShareName        = "SYSVOL"
+        Sharepermissions = $SYSVOLPermsummary -join "`n" 
+        IsInherited      = -NOT($SYSVOLACLs.AreAccessRulesProtected)
+    }
+
+    $SysvolNetlogonPermissions += [pscustomobject] @{
+        DomainName       = $DomainName
+        ShareName        = "NETLOGON"
+        Sharepermissions = $NETLOGONPermsummary -join "`n" 
+        IsInherited      = -NOT($NETLOGONACLs.AreAccessRulesProtected)
+    }
+
+    return $SysvolNetlogonPermissions
+}
 
 # The main function to perform assessment of AD Forest and produce results as html file
 Function Get-ADForestDetails {
@@ -1110,6 +1188,7 @@ Function Get-ADForestDetails {
     $GPODetails = @()
     $SecuritySettings = @()
     $unusedScripts = @()
+    $SysvolNetlogonPermissions = @()
 
     if (!($forestcheck)) {
         $allDomains = $ChildDomain
@@ -1139,6 +1218,7 @@ Function Get-ADForestDetails {
         $DNSZoneDetails += Get-ADDNSZoneDetails -DomainName $domain -credential $Credential
         $EmptyOUDetails += Get-EmptyOUDetails -DomainName $domain -credential $Credential
         $GPODetails += Get-ADGPODetails -DomainName $domain -credential $Credential
+        $SysvolNetlogonPermissions += Get-SysvolNetlogonPermissions -DomainName $domain -Credential $Credential 
         $SecuritySettings += Start-SecurityCheck -DomainName $domain -Credential $Credential
         $unusedScripts += Get-UnusedNetlogonScripts -DomainName $domain -Credential $Credential
     }
@@ -1191,12 +1271,14 @@ Function Get-ADForestDetails {
     $ServerOSSummary = $ServerOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Server OS Summary</h2>"
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
     $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
+    $SysvolNetlogonPermSummary = ($SysvolNetlogonPermissions | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Sysvol and Netlogon Permissions Summary</h2>") -replace "`n", "<br>"
     $SecuritySummary = $SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $SecuritySummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $SysvolNetlogonPermSummary $SecuritySummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath    
 }
 
+# Menu
 Clear-Host 
 Write-Output "Menu:" 
 "Option 1: Run script over entire forest" 
