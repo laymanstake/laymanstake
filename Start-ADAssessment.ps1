@@ -908,7 +908,51 @@ Function Start-SecurityCheck {
                     }
                 }
             }
+
+            $null = secedit.exe /export /areas USER_RIGHTS /cfg "$env:TEMP\secedit.cfg"
+            $seceditContent = Get-Content "$env:TEMP\secedit.cfg" 
             
+            $LocalLogonSIDs = ((($seceditContent | Select-String "SeInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+            $LocalLogonUsers = $LocalLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                $User = $SID.Translate([System.Security.Principal.NTAccount])
+                $User.Value
+            }
+            $LocalLogonUsers -join "`n"
+            
+            $RemoteLogonSIDs = ((($seceditContent | Select-String "SeRemoteInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+            $RemoteLogonUsers = $RemoteLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                $User = $SID.Translate([System.Security.Principal.NTAccount])
+                $User.Value
+            }
+            $RemoteLogonUsers -join "`n"            
+
+            $DenyNetworkLogonSIDs = ((($seceditContent | Select-String "SeDenyNetworkLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+            $DenyNetworkLogonUsers = $DenyNetworkLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                $User = $SID.Translate([System.Security.Principal.NTAccount])
+                $User.Value
+            }
+            $DenyNetworkLogonUsers -join "`n"            
+
+            $DenyServiceLogonSIDs = ((($seceditContent | Select-String "SeDenyServiceLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+            $DenyServiceLogonUsers = $DenyServiceLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                $User = $SID.Translate([System.Security.Principal.NTAccount])
+                $User.Value
+            }
+            $DenyServiceLogonUsers -join "`n"
+
+            $DenyBatchLogonSIDs = ((($seceditContent | Select-String "SeDenyBatchLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+            $DenyBatchLogonUsers = $DenyBatchLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object {
+                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                $User = $SID.Translate([System.Security.Principal.NTAccount])
+                $User.Value
+            }
+            $DenyBatchLogonUsers -join "`n"
+
+            $null = Remove-Item "$env:TEMP\secedit.cfg"
         }
 
         $SecuritySettings += [PSCustomObject]@{
@@ -919,6 +963,11 @@ Function Start-SecurityCheck {
             "Network access: Allow anonymous SID/Name translation"                          = $settings[2]
             "Domain controller: LDAP server signing requirements"                           = $settings[3]
             "Interactive logon: Machine inactivity limit"                                   = $settings[4]
+            "Allow logon locally on domain controllers"                                     = $settings[5]
+            "Allow logon through Terminal Services on domain controllers"                   = $settings[6]
+            "Deny access to this computer from the network"                                 = $settings[7]
+            "Deny log on as a service"                                                      = $settings[8]
+            "Deny log on as a batch job"                                                    = $settings[9]
         }
     }
 
@@ -1272,7 +1321,7 @@ Function Get-ADForestDetails {
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
     $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
     $SysvolNetlogonPermSummary = ($SysvolNetlogonPermissions | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Sysvol and Netlogon Permissions Summary</h2>") -replace "`n", "<br>"
-    $SecuritySummary = $SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>"
+    $SecuritySummary = ($SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>") -replace "`n", "<br>"
 
     $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $SysvolNetlogonPermSummary $SecuritySummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath    
