@@ -12,9 +12,8 @@ function EmailAlert () {
 		[parameter(mandatory = $true)]$Subject,
 		[parameter(mandatory = $true)]$Body,
 		[parameter(mandatory = $false)]$SMTPServerPort = "25",		
-		[parameter(mandatory = $false)]$RecipientAddressCc,
-		[parameter(mandatory = $false)][switch]$SMTPServerSSL = $false,
-		[parameter(mandatory = $false)][switch]$IsBodyHtml = $false
+		[parameter(mandatory = $false)]$RecipientAddressCc,		
+		[parameter(mandatory = $false)][bool]$IsBodyHtml = $false
 	)
 
 	if ($RecipientAddressCc) {
@@ -26,11 +25,10 @@ function EmailAlert () {
 				Subject    = $Subject
 				Body       = $Body
 				SmtpServer = $SMTPServer
-				Port       = $SMTPServerPort
-				UseSsl     = $SMTPServerSSL
+				Port       = $SMTPServerPort				
 				IsBodyHtml = $IsBodyHtml
 			}		
-			Send-MailMessage @email 
+			Send-MailMessage @email -UseSsl
 		}
 		Catch {
 			Throw $_.exception.message 
@@ -44,10 +42,10 @@ function EmailAlert () {
 				Subject    = $Subject
 				Body       = $Body
 				SmtpServer = $SMTPServer			
-				Port       = $SMTPServerPort
-				UseSsl     = $SMTPServerSSL
+				Port       = $SMTPServerPort				
+				IsBodyHtml = $IsBodyHtml
 			}		
-			Send-MailMessage @email 
+			Send-MailMessage @email  -UseSsl
 		}
 		Catch {
 			Throw $_.exception.message 

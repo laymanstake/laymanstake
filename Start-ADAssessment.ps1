@@ -1112,6 +1112,58 @@ function Get-SysvolNetlogonPermissions {
     return $SysvolNetlogonPermissions
 }
 
+# Function to send email
+function New-Email () {
+    [CmdletBinding()]
+    param(
+        [parameter(mandatory = $true)]$RecipientAddressTo,		
+        [parameter(mandatory = $true)]$SenderAddress,
+        [parameter(mandatory = $true)]$SMTPServer,		
+        [parameter(mandatory = $true)]$Subject,
+        [parameter(mandatory = $true)]$Body,
+        [parameter(mandatory = $false)]$SMTPServerPort = "25",		
+        [parameter(mandatory = $false)]$RecipientAddressCc,
+        [parameter(mandatory = $false)][pscredential]$credential
+
+    )
+
+    if ($RecipientAddressCc) {
+        try {
+            $email = @{
+                From       = $SenderAddress
+                To         = $RecipientAddressTo
+                Cc         = $RecipientAddressCc
+                Subject    = $Subject
+                Body       = $Body
+                SmtpServer = $SMTPServer
+                Port       = $SMTPServerPort
+            }		
+            Send-MailMessage @email -UseSsl -BodyAsHtml -Credential $credential
+        }
+        Catch {
+            Throw $_.exception.message 
+        }
+    }
+    else {
+        try {
+            $email = @{
+                From       = $SenderAddress
+                To         = $RecipientAddressTo
+                Subject    = $Subject
+                Body       = $Body
+                SmtpServer = $SMTPServer			
+                Port       = $SMTPServerPort				                
+            }		
+            
+            Send-MailMessage @email -UseSsl -BodyAsHtml -Credential $credential
+        }
+        Catch {
+            Throw $_.exception.message 
+        }
+    }
+
+}
+
 # The main function to perform assessment of AD Forest and produce results as html file
 Function Get-ADForestDetails {
     [CmdletBinding()]
@@ -1361,3 +1413,8 @@ switch ($choice) {
         exit
     }
 }
+
+$MailCredential = Get-Credential -Message "Enter the password for the email account: " -UserName "contactfor_nitish@hotmail.com"
+
+$body = Get-Content $ReportPath1 -Raw
+New-Email -RecipientAddressTo "nitish.kumar@atos.net" -SenderAddress "contactfor_nitish@hotmail.com" -SMTPServer "smtp.office365.com" -SMTPServerPort 587 -Subject "AD Assessment Report $(get-date -Uformat "%Y%m%d-%H%M%S")" -Body $body -credential $MailCredential
