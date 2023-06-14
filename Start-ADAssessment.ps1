@@ -105,7 +105,8 @@ Function Get-ADFSDetails {
     Get-ADComputer -Filter { OperatingSystem -like "*Server*" } -Server $PDC -Credential $Credential |
     ForEach-Object {
         $computer = $_.Name
-        $service = Invoke-Command -ComputerName $computer -ScriptBlock { (Get-Service -Name "adfssrv" -ErrorAction SilentlyContinue).Name ; (Get-Service -Name "adsync" -ErrorAction SilentlyContinue).Name }  -Credential $Credential
+        $cimSession = New-CimSession -ComputerName $_.Name -Credential $Credential
+        $service = ((Get-CimInstance -CimSession $cimSession -ClassName Win32_Service -Filter "Name = 'adfssrv'" -ErrorAction SilentlyContinue).Name , (Get-CimInstance -CimSession $cimSession -ClassName Win32_Service -Filter "Name = 'adsync'" -ErrorAction SilentlyContinue).Name )
         if ($service[0] -eq "adfssrv") {
             $adfsServers += $computer
         }
@@ -114,8 +115,14 @@ Function Get-ADFSDetails {
         }
     }
 
-    foreach ($server in $adfsServers) {        
-        $ADFSproperties = invoke-command -ComputerName $server -ScriptBlock { import-module ADFS; Get-ADFSSyncProperties; (Get-ADFSProperties).Identifier } -Credential $Credential
+    foreach ($server in $adfsServers) {
+        try {
+            $ADFSproperties = invoke-command -ComputerName $server -ScriptBlock { import-module ADFS; Get-ADFSSyncProperties; (Get-ADFSProperties).Identifier } -Credential $Credential
+        }
+        catch {
+            Write-Output "PS remoting NOT supported on $server"
+        }
+        
         if (($ADFSproperties[0]).Role -eq "PrimaryComputer") {
             $isMaster = $true
         }
@@ -134,7 +141,12 @@ Function Get-ADFSDetails {
     }
 
     foreach ($server in $aadconnectServers) {        
-        $ADSyncVersion = invoke-command -ComputerName $server -Credential $Credential -ScriptBlock { (Get-Item (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Azure AD Connect").WizardPath).VersionInfo.FileVersion; (Get-Service -Name ADSYnc).Status -eq "Running" }        
+        $cimSession = New-CimSession -ComputerName $server -Credential $Credential
+        
+        $InstallPath = ((([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $server)).OpenSubKey('SOFTWARE\Microsoft\Azure AD Connect')).GetValue('Wizardpath')) -replace "\\", "\\"
+        $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $server)).Close();
+        
+        $ADSyncVersion = ( ((Get-CimInstance -ClassName Cim_DataFile -CimSession $cimSession -Filter "Name='$InstallPath'").Version), ((Get-CimInstance -CimSession $cimSession -ClassName Win32_Service -Filter "Name = 'adsync'" -ErrorAction SilentlyContinue).State -eq "Running" ))
         
         $Info = [PSCustomObject]@{
             ServerName      = $server
@@ -373,7 +385,7 @@ Function Get-ADObjectsToClean {
         OrphanedObjects      = $orphanedObj.DistinguishedName -join "`n"
         OrphanedObjectCount  = $orphanedObj.Name.count
         LingeringObjects     = $lingConfReplObj.DistinguishedName -join "`n"
-        LingeringObjectCount = $lingConfReplObj.Name.count        
+        LingeringObjectCount = $lingConfReplObj.Name.count
     }
     
     return $ObjectsToClean
@@ -524,7 +536,7 @@ Function Get-ADDomainDetails {
         $FSR2DFSRStatus = invoke-command -ComputerName $PDC -ScriptBlock { ((dfsrmig.exe /GetGlobalState )[0].replace("'", "") -split ": ")[1] } -Credential $Credential
     }
     catch {
-        $FSR2DFSRStatus = "WinRM access denied on PDC"
+        $FSR2DFSRStatus = "WinRM access denied on $PDC"
     }
 
     foreach ($dc in $dcs) {
@@ -994,12 +1006,7 @@ function Get-UnusedNetlogonScripts {
         $gpos = Get-GPO -All -Domain $DomainName -Server $PDC
 
         foreach ($gpo in $gpos) {
-            $gpoReport = if ($Credential) {
-                Invoke-Command -ScriptBlock { Get-GPOReport -Name $args[0] -ReportType Xml -Domain $args[1] -Server $args[2] } -Credential $Credential -ComputerName $PDC -ArgumentList $gpo.DisplayName, $DomainName, $PDC
-            }
-            else {
-                Invoke-Command -ScriptBlock { Get-GPOReport -Name $args[0] -ReportType Xml -Domain $args[1] -Server $args[2] } -ComputerName $PDC -ArgumentList $gpo.DisplayName, $DomainName, $PDC
-            }
+            $gpoReport = Get-GPOReport -Name $gpo.DisplayName -ReportType Xml -Domain $DomainName -Server $PDC            
             
             $gpoXml = [xml]$gpoReport
 
@@ -1263,6 +1270,7 @@ Function Get-ADForestDetails {
     }
 
     $ForestPrivGroupsSummary = ($ForestPrivGroups | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Forest-wide Priviledged groups Summary</h2>") -replace "`n", "<br>"
+    
     if ($forestcheck) {
         $PKIDetails = Get-PKIDetails -ForestName $forest -Credential $Credential
     }
@@ -1414,7 +1422,7 @@ switch ($choice) {
     }
 }
 
-$MailCredential = Get-Credential -Message "Enter the password for the email account: " -UserName "contactfor_nitish@hotmail.com"
+<# $MailCredential = Get-Credential -Message "Enter the password for the email account: " -UserName "contactfor_nitish@hotmail.com"
 
 $body = Get-Content $ReportPath1 -Raw
-New-Email -RecipientAddressTo "nitish@nitishkumar.net" -SenderAddress "contactfor_nitish@hotmail.com" -SMTPServer "smtp.office365.com" -SMTPServerPort 587 -Subject "AD Assessment Report $(get-date -Uformat "%Y%m%d-%H%M%S")" -Body $body -credential $MailCredential
+New-Email -RecipientAddressTo "nitish@nitishkumar.net" -SenderAddress "contactfor_nitish@hotmail.com" -SMTPServer "smtp.office365.com" -SMTPServerPort 587 -Subject "AD Assessment Report $(get-date -Uformat "%Y%m%d-%H%M%S")" -Body $body -credential $MailCredential #>
