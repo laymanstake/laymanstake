@@ -1374,6 +1374,64 @@ function Get-SysvolNetlogonPermissions {
     return $SysvolNetlogonPermissions
 }
 
+# Returns the inventory of the given list of computers
+Function Get-SystemInfo {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, Mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, Mandatory = $false)][pscredential]$Credential,
+        [Parameter(ValueFromPipeline = $true, Mandatory = $true)]$Servers
+    )
+
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
+
+    $servers = $servers | ForEach-Object { Get-ADComputer -Identity $_ -Server $PDC -properties Name, IPv4Address, OperatingSystem } | select-object Name, IPv4Address, OperatingSystem
+
+    #Run the commands for each server in the list
+    $infoObject = @()
+    
+    Foreach ($s in $servers) {   
+        $ErrorActionPreference = "Continue" 
+        try {
+            $CPUInfo = Get-CimInstance Win32_Processor -ComputerName $s.Name
+            $PhysicalMemory = Get-CimInstance CIM_PhysicalMemory -ComputerName $s.Name | Measure-Object -Property capacity -Sum | ForEach-Object { [Math]::Round(($_.sum / 1GB), 2) }
+            $NetworkInfo = Get-CimInstance Win32_networkadapter -ComputerName $s.Name | Where-Object { $_.MACAddress -AND $_.PhysicalAdapter -eq $true }
+            $DiskInfo = Get-CimInstance Win32_LogicalDisk -ComputerName $s.Name
+            $SerialNumber = (Get-CimInstance Win32_BIOs -ComputerName $s.Name).SerialNumber
+            $MakeInfo = Get-CimInstance Win32_ComputerSystem -ComputerName $s.Name
+            $NICSpeed = (($NetworkInfo.Speed | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -Join " Gbps,") + " Gbps"
+            $DiskSizes = (($DiskInfo.size | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
+            $DiskFreeSizes = (($DiskInfo.FreeSpace | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
+
+            $infoObject += [PSCustomObject]@{
+                Name            = $s.Name
+                IPAddress       = $s.IPV4Address
+                SerialNumber    = $SerialNumber
+                Manufacturer    = $MakeInfo.Manufacturer
+                Model           = $MakeInfo.Model
+                OperatingSystem = $s.OperatingSystem
+                Processor       = ($CPUInfo.Name -join ",")
+                PhysicalCores   = ($CPUInfo.NumberOfCores -join ",")
+                Logicalcores    = ($CPUInfo.NumberOfLogicalProcessors -join ",")
+                PhysicalMemory  = $PhysicalMemory
+                NIC_Count       = ($NetworkInfo | Measure-object).Count
+                NIC_Name        = ($NetworkInfo.NetConnectionID -join ",")
+                NIC_MAC         = ($NetworkInfo.MACAddress -join ",")
+                NIC_Speed       = $NICSpeed
+                DriveLetter     = ($DiskInfo.DeviceID -join ",")                
+                DriveSize       = $DiskSizes
+                DriveFreeSpace  = $DiskFreeSizes
+            }
+        }
+        catch {
+            Write-Output "Issue in data collection from $($s)"
+            Continue
+        }
+    }
+
+    Return $infoObject
+}
+
 # Function to send email
 function New-Email () {
     [CmdletBinding()]
@@ -1583,6 +1641,7 @@ Function Get-ADForestDetails {
     $SecuritySettings = @()
     $unusedScripts = @()
     $SysvolNetlogonPermissions = @()
+    $DCInventory = @()
 
     if (!($forestcheck)) {
         $allDomains = $ChildDomain
@@ -1594,6 +1653,9 @@ Function Get-ADForestDetails {
         New-BaloonNotification -title Information -message "Working over domain: $Domain related details."
         $TrustDetails += Get-ADTrustDetails -DomainName $domain -credential $Credential
         $DomainDetails += Get-ADDomainDetails -DomainName $domain -credential $Credential
+        New-BaloonNotification -title Information -message "Working over domain: $Domain DC inventory related details."
+        $DCInventory += Get-SystemInfo -DomainName $domain -Credential $Credential -server ($DomainDetails | Where-Object { $_.Domain -eq $domain }).DCName
+        New-BaloonNotification -title Information -message "The domain: $Domain DC inventory related details collected."
         $SiteDetails += Get-ADSiteDetails -DomainName $domain -credential $Credential
         $privGroupDetails += Get-PrivGroupDetails -DomainName $domain -credential $Credential
         $UserDetails += Get-ADUserDetails -DomainName $domain -credential $Credential
@@ -1621,10 +1683,8 @@ Function Get-ADForestDetails {
         $GPODetails += Get-GPOInventory -DomainName $domain
         $SysvolNetlogonPermissions += Get-SysvolNetlogonPermissions -DomainName $domain -Credential $Credential 
         $SecuritySettings += Start-SecurityCheck -DomainName $domain -Credential $Credential
-        $unusedScripts += Get-UnusedNetlogonScripts -DomainName $domain -Credential $Credential
-    }
-
-    New-BaloonNotification -title "Information" -message "Forest $forest details collected now, preparing html report"
+        $unusedScripts += Get-UnusedNetlogonScripts -DomainName $domain -Credential $Credential        
+    }    
 
     If ($TrustDetails) {
         $TrustSummary = ($TrustDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Trust Summary</h2>")
@@ -1635,10 +1695,10 @@ Function Get-ADForestDetails {
         $DHCPDetails = Get-ADDHCPDetails -Credential $Credential
         $DHCPInventory = Get-DHCPInventory
         $DHCPSummary = ($DHCPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Summary</h2>") -replace "`n", "<br>"
-        $DHCPInventorySummary = ($DHCPInventory.Inventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Inventory</h2>") -replace "`n", "<br>"
+        $DHCPInventorySummary = ($DHCPInventory.Inventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Inventory</h2>") -replace "`n", "<br>" -replace '<td>Inactive</td>', '<td bgcolor="red">Inactive</td>'
         $DHCPResInventory = ($DHCPInventory.reservation | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Reservation Inventory</h2>") -replace "`n", "<br>"
 
-        New-BaloonNotification -title "Information" -message "DHCP Server information in forest: $forest collected" -icon Info
+        New-BaloonNotification -title "Information" -message "DHCP Server information in forest: $forest collected"
     }
     
     #If ($PKIDetails) {
@@ -1688,8 +1748,11 @@ Function Get-ADForestDetails {
     $GPOInventory = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
     $SysvolNetlogonPermSummary = ($SysvolNetlogonPermissions | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Sysvol and Netlogon Permissions Summary</h2>") -replace "`n", "<br>"
     $SecuritySummary = ($SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>") -replace "`n", "<br>" -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
+    $DCSummary = ($DCInventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Sysvol and Netlogon Permissions Summary</h2>") -replace "`n", "<br>"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    New-BaloonNotification -title "Information" -message "Forest $forest details collected now, preparing html report"
+
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory $DCSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath
 }
 
