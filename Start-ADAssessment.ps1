@@ -1631,14 +1631,14 @@ Function Get-ADForestDetails {
     }    
     
     If ($DHCPFlag) {
-        New-BaloonNotification -title "Caution" -message "Looking for all DHCP servesr in domain: $Domain and their scope details. It might take long time" -icon Warning
+        New-BaloonNotification -title "Caution" -message "Looking for all DHCP servesr in forest: $forest and their scope details. It might take long time" -icon Warning
         $DHCPDetails = Get-ADDHCPDetails -Credential $Credential
         $DHCPInventory = Get-DHCPInventory
         $DHCPSummary = ($DHCPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Summary</h2>") -replace "`n", "<br>"
         $DHCPInventorySummary = ($DHCPInventory.Inventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Inventory</h2>") -replace "`n", "<br>"
         $DHCPResInventory = ($DHCPInventory.reservation | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Reservation Inventory</h2>") -replace "`n", "<br>"
 
-        New-BaloonNotification -title "Information" -message "DHCP Server information in domain: $Domain collected" -icon Info
+        New-BaloonNotification -title "Information" -message "DHCP Server information in forest: $forest collected" -icon Info
     }
     
     #If ($PKIDetails) {
