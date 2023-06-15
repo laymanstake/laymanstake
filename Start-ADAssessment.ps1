@@ -323,12 +323,14 @@ Function Get-ADDHCPDetails {
     Param(    
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
-    
+
+    $PDC = (Get-ADDomain -Current LocalComputer).PDCEmulator    
     $configPartition = (Get-ADforest).PartitionsContainer.Replace("CN=Partitions,", "")
-    $AllDHCPServers = (Get-ADObject -SearchBase $configPartition -Filter "objectclass -eq 'dhcpclass' -AND Name -ne 'dhcproot'" -Credential $Credential).Name
+    $AllDHCPServers = (Get-ADObject -SearchBase $configPartition -Filter "objectclass -eq 'dhcpclass' -AND Name -ne 'dhcproot'" -Server $PDC -Credential $Credential).Name
     $DHCPDetails = @()
 
     foreach ($dhcpserver in $AllDHCPServers) {
+        $ErrorActionPreference = "SilentlyContinue"
         try {
             $Allscopes = @(Get-DhcpServerv4Scope -ComputerName $dhcpserver -ErrorAction:SilentlyContinue)
             $InactiveScopes = @($Allscopes | Where-Object { $_.State -eq 'Inactive' })
@@ -341,15 +343,21 @@ Function Get-ADDHCPDetails {
                 }
             }
 
+            try {
+                $OS = (Get-WmiObject win32_operatingSystem -ComputerName $dhcpserver -Property Caption).Caption                
+            }
+            catch {
+                $OS = "Access denied"
+            }
+
             $DHCPDetails += [PSCustomObject]@{
                 ServerName         = $dhcpserver
                 IPAddress          = ([System.Net.Dns]::GetHostAddresses($dhcpserver) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n"
-                OperatingSystem    = (Get-WmiObject win32_operatingSystem -ComputerName $dhcpserver -Property Caption).Caption
+                OperatingSystem    = $OS 
                 ScopeCount         = $Allscopes.count
                 InactiveScopeCount = $InactiveScopes.count
                 ScopeWithNoLease   = $NoLeaseScopes -join "`n"
-                NoLeaseScopeCount  = $NoLeaseScopes.count
-                IsVirtual          = ((Get-WmiObject win32_operatingSystem -ComputerName $dhcpserver).model).Contains("Virtual")
+                NoLeaseScopeCount  = $NoLeaseScopes.count                
             }
         }
         catch {}
@@ -408,7 +416,7 @@ Function Get-ADObjectsToClean {
 }
 
 # Returns the details of unlinked GPOs in the given domain
-Function Get-ADGPODetails {
+Function Get-ADGPOSummary {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
@@ -444,6 +452,39 @@ Function Get-ADGPODetails {
     }
     
     return $UnlinkedGPODetails
+}
+
+# To return details of all GPOs and their WMI filter for the given domain
+Function Get-GPOInventory {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName     
+    )
+
+    $GPOSummary = @()
+    $GPOs = Get-GPO -All -Domain $DomainName
+    
+    $GPOs | ForEach-Object {
+        [xml]$Report = $_ | Get-GPOReport -ReportType XML -Domain $DomainName
+
+        $Permissions = Get-GPPermission -Name $Report.GPO.Name -All -DomainName $DomainName | Select-Object @{l = "Permission"; e = { "$($_.Trustee.Name), $($_.Trustee.SIDType), $($_.permission), Denied: $($_.Denied)" } }    
+        $Links = $Report.GPO.LinksTo
+        
+        $GPOSummary += [pscustomobject]@{
+            Domain           = $DomainName
+            GPOName          = $Report.GPO.Name
+            Creationtime     = $_.CreationTime
+            ModificationTime = $_.ModificationTime
+            Link             = $($Links.SOMPATH) -join "`n"
+            ComputerSettings = $Report.GPO.Computer.Enabled
+            UserSettings     = $Report.GPO.User.Enabled
+            Permissions      = $Permissions.Permission -join "`n"
+            WmiFilter        = $_.WmiFilter.Name
+        
+        }
+    }    
+
+    return $GPOSummary
 }
 
 # Returns the details of Applied Password Policy in the given domain
@@ -618,8 +659,7 @@ Function Get-ADDomainDetails {
                 TLS11Server                 = $Results[6]
                 Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc).Status
                 NetlogonParameter           = $Results[0]
-                ReadOnly                    = $dc.IsReadOnly
-                IsVirtual                   = ((Get-WmiObject Win32_ComputerSystem -ComputerName $dc).model).Contains("Virtual")
+                ReadOnly                    = $dc.IsReadOnly                
                 UndesiredFeatures           = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject  (Get-WindowsFeature -ComputerName $dc -Credential $Credential | Where-Object Installed).Name -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
             }
         }
@@ -1235,6 +1275,35 @@ function New-Email () {
 
 }
 
+# For showing up baloon notification
+function New-BaloonNotification {
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][String]$title,
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][String]$message,        
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][ValidateSet('None', 'Info', 'Warning', 'Error')][String]$icon = "Info",
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][scriptblock]$Script
+    )
+    Add-Type -AssemblyName System.Windows.Forms
+
+    if ($null -eq $script:balloonToolTip) { $script:balloonToolTip = New-Object System.Windows.Forms.NotifyIcon }
+
+    $tip = New-Object System.Windows.Forms.NotifyIcon
+
+    $path = Get-Process -id $pid | Select-Object -ExpandProperty Path    
+    $tip.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path)
+    $tip.BalloonTipIcon = $Icon
+    $tip.BalloonTipText = $message
+    $tip.BalloonTipTitle = $title    
+    $tip.Visible = $true            
+    
+    register-objectevent $tip BalloonTipClicked BalloonClicked_event -Action { $script.Invoke() } | Out-Null
+    $tip.ShowBalloonTip(50000) # Even if we set it for 1000 milliseconds, it usually follows OS minimum 10 seconds
+    Start-Sleep -s 10
+    
+    $tip.Dispose() # Important to dispose otherwise the icon stays in notifications till reboot
+    Get-EventSubscriber -SourceIdentifier "BalloonClicked_event"  -ErrorAction SilentlyContinue | Unregister-Event # In case if the Event Subscription is not disposed
+}
+
 # The main function to perform assessment of AD Forest and produce results as html file
 Function Get-ADForestDetails {
     [CmdletBinding()]
@@ -1358,6 +1427,7 @@ Function Get-ADForestDetails {
     $DNSServerDetails = @()
     $DNSZoneDetails = @()
     $EmptyOUDetails = @()
+    $GPOSummaryDetails = @()
     $GPODetails = @()
     $SecuritySettings = @()
     $unusedScripts = @()
@@ -1367,7 +1437,10 @@ Function Get-ADForestDetails {
         $allDomains = $ChildDomain
     }
 
-    ForEach ($domain in $allDomains) {        
+    New-BaloonNotification -title "Information" -message "Summary details about forest: $forest done."
+
+    ForEach ($domain in $allDomains) {
+        New-BaloonNotification -title Information -message "Working over domain: $Domain related details."
         $TrustDetails += Get-ADTrustDetails -DomainName $domain -credential $Credential
         $DomainDetails += Get-ADDomainDetails -DomainName $domain -credential $Credential
         $SiteDetails += Get-ADSiteDetails -DomainName $domain -credential $Credential
@@ -1382,36 +1455,42 @@ Function Get-ADForestDetails {
         $OrphanedFSPDetails += Get-OrphanedFSP -DomainName $domain -credential $Credential
         $ServerOSDetails += Get-DomainServerDetails -DomainName $domain -credential $Credential
         $ClientOSDetails += Get-DomainClientDetails -DomainName $domain -credential $Credential
+        New-BaloonNotification -title "Caution" -message "Looking for ADFS/ ADSync server in domain: $Domain. It might take long time" -icon Warning
         $ADSyncDetail, $ADFSDetail = Get-ADFSDetails -DomainName $domain -credential $Credential
         $ADFSDetail = $ADFSDetail | Sort-Object * -Unique
         $ADFSDetails += $ADFSDetail
         $ADSyncDetail = $ADSyncDetail | Sort-Object * -Unique
-        $ADSyncDetails += $ADSyncDetail        
+        $ADSyncDetails += $ADSyncDetail
+        New-BaloonNotification -title "Information" -message "Lookup for ADFS/ ADSync server in domain: $Domain done."
         $DNSServerDetails += Get-ADDNSDetails -DomainName $domain -credential $Credential
         $DNSZoneDetails += Get-ADDNSZoneDetails -DomainName $domain -credential $Credential
         $EmptyOUDetails += Get-EmptyOUDetails -DomainName $domain -credential $Credential
-        $GPODetails += Get-ADGPODetails -DomainName $domain -credential $Credential
+        $GPOSummaryDetails += Get-ADGPOSummary -DomainName $domain -credential $Credential
+        New-BaloonNotification -title "Information" -message "Working over domain: $Domain GPO related details."
+        $GPODetails += Get-GPOInventory -DomainName $domain
         $SysvolNetlogonPermissions += Get-SysvolNetlogonPermissions -DomainName $domain -Credential $Credential 
         $SecuritySettings += Start-SecurityCheck -DomainName $domain -Credential $Credential
         $unusedScripts += Get-UnusedNetlogonScripts -DomainName $domain -Credential $Credential
     }
 
+    New-BaloonNotification -title "Information" -message "Forest $forest details collected now, preparing html report"
+
     If ($TrustDetails) {
         $TrustSummary = ($TrustDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Trust Summary</h2>")
     }
     $DHCPDetails = Get-ADDHCPDetails -Credential $Credential
-    If ($DHCPDetails) {
-        $DHCPSummary = ($DHCPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Summary</h2>") -replace "`n", "<br>"
-    }
-    If ($PKIDetails) {
-        $PKISummary = ($PKIDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Certificate servers Summary</h2>") -replace '<td>SHA1RSA</td>', '<td bgcolor="red">SHA1RSA</td>'
-    }
-    If ($ADSyncDetails) {
-        $ADSyncSummary = ($ADSyncDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADSync servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
-    }
-    If ($ADFSDetails) {
-        $ADFSSummary = ($ADFSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADFS servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
-    }    
+    #If ($DHCPDetails) {
+    $DHCPSummary = ($DHCPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Summary</h2>") -replace "`n", "<br>"
+    #}
+    #If ($PKIDetails) {
+    $PKISummary = ($PKIDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Certificate servers Summary</h2>") -replace '<td>SHA1RSA</td>', '<td bgcolor="red">SHA1RSA</td>'
+    #}
+    #If ($ADSyncDetails) {
+    $ADSyncSummary = ($ADSyncDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADSync servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
+    #}
+    #If ($ADFSDetails) {
+    $ADFSSummary = ($ADFSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADFS servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
+    #}    
     If ($ClientOSDetails) {        
         $ClientOSSummary = $ClientOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Client OS Summary</h2>"
     }
@@ -1443,12 +1522,13 @@ Function Get-ADForestDetails {
     $PwdPolicySummary = $PasswordPolicyDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Password Policy Summary</h2>"
     $ServerOSSummary = $ServerOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Server OS Summary</h2>"
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
-    $GPOSummary = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
+    $GPOSummary = ($GPOSummaryDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
+    $GPOInventory = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
     $SysvolNetlogonPermSummary = ($SysvolNetlogonPermissions | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Sysvol and Netlogon Permissions Summary</h2>") -replace "`n", "<br>"
     $SecuritySummary = ($SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>") -replace "`n", "<br>" -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $SysvolNetlogonPermSummary $SecuritySummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
-    $ReportRaw | Out-File $ReportPath    
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $SecuritySummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw | Out-File $ReportPath
 }
 
 # Menu
