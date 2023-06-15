@@ -606,8 +606,9 @@ Function Get-GPOInventory {
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName     
     )
-
+    
     $GPOSummary = @()
+    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator    
     $GPOs = Get-GPO -All -Domain $DomainName
     
     $GPOs | ForEach-Object {
@@ -615,6 +616,9 @@ Function Get-GPOInventory {
 
         $Permissions = Get-GPPermission -Name $Report.GPO.Name -All -DomainName $DomainName | Select-Object @{l = "Permission"; e = { "$($_.Trustee.Name), $($_.Trustee.SIDType), $($_.permission), Denied: $($_.Denied)" } }    
         $Links = $Report.GPO.LinksTo
+
+        $wmifilterid = ($_.WmiFilter.Path -split '"')[1]    
+        $wmiquery = ((Get-ADObject -Filter { objectClass -eq 'msWMI-Som' } -Server $PDC -Properties 'msWMI-Parm2' | where-object { $_.name -eq $wmifilterid })."msWMI-Parm2" -split "root\\CIMv2;")[1]    
         
         $GPOSummary += [pscustomobject]@{
             Domain           = $DomainName
@@ -626,9 +630,10 @@ Function Get-GPOInventory {
             UserSettings     = $Report.GPO.User.Enabled
             Permissions      = $Permissions.Permission -join "`n"
             WmiFilter        = $_.WmiFilter.Name
+            WmiQuery         = $wmiquery
         
         }
-    }    
+    }
 
     return $GPOSummary
 }
