@@ -105,8 +105,12 @@ Function Get-ADFSDetails {
     Get-ADComputer -Filter { OperatingSystem -like "*Server*" } -Server $PDC -Credential $Credential |
     ForEach-Object {
         $computer = $_.Name
-        $cimSession = New-CimSession -ComputerName $_.Name -Credential $Credential
-        $service = ((Get-CimInstance -CimSession $cimSession -ClassName Win32_Service -Filter "Name = 'adfssrv'" -ErrorAction SilentlyContinue).Name , (Get-CimInstance -CimSession $cimSession -ClassName Win32_Service -Filter "Name = 'adsync'" -ErrorAction SilentlyContinue).Name )
+        try {            
+            $service = ((Get-Service -ComputerName $computer -Name adfssrv -ErrorAction SilentlyContinue).Name , (Get-Service -ComputerName $computer -Name adsync -ErrorAction SilentlyContinue).Name )
+        }
+        catch {
+            
+        }
         if ($service[0] -eq "adfssrv") {
             $adfsServers += $computer
         }
@@ -117,7 +121,9 @@ Function Get-ADFSDetails {
 
     foreach ($server in $adfsServers) {
         try {
-            $ADFSproperties = invoke-command -ComputerName $server -ScriptBlock { import-module ADFS; Get-ADFSSyncProperties; (Get-ADFSProperties).Identifier } -Credential $Credential
+            if (Test-WSMan -ComputerName $server -ErrorAction SilentlyContinue) {
+                $ADFSproperties = invoke-command -ComputerName $server -ScriptBlock { import-module ADFS; Get-ADFSSyncProperties; (Get-ADFSProperties).Identifier } -Credential $Credential
+            }
         }
         catch {
             Write-Output "PS remoting NOT supported on $server"
@@ -141,18 +147,21 @@ Function Get-ADFSDetails {
     }
 
     foreach ($server in $aadconnectServers) {        
-        $cimSession = New-CimSession -ComputerName $server -Credential $Credential
-        
         $InstallPath = ((([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $server)).OpenSubKey('SOFTWARE\Microsoft\Azure AD Connect')).GetValue('Wizardpath')) -replace "\\", "\\"
         $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $server)).Close();
         
-        $ADSyncVersion = ( ((Get-CimInstance -ClassName Cim_DataFile -CimSession $cimSession -Filter "Name='$InstallPath'").Version), ((Get-CimInstance -CimSession $cimSession -ClassName Win32_Service -Filter "Name = 'adsync'" -ErrorAction SilentlyContinue).State -eq "Running" ))
-        
+        if (Test-WSMan -ComputerName $server -ErrorAction SilentlyContinue) {
+            $ADSyncVersion = (Get-CimInstance -ClassName Cim_DataFile -ComputerName $server -Filter "Name='$InstallPath'").Version
+        }
+        else {
+            $ADSyncVersion = "Access denied"
+        }
+
         $Info = [PSCustomObject]@{
             ServerName      = $server
             OperatingSystem = (Get-ADComputer $server -server $PDC -Credential $Credential -properties OperatingSystem).OperatingSystem            
-            ADSyncVersion   = $ADSyncVersion[0]
-            IsActive        = $ADSyncVersion[1]
+            ADSyncVersion   = $ADSyncVersion
+            IsActive        = (Get-Service -ComputerName $Server -Name ADSync -ErrorAction SilentlyContinue).Status -eq "Running"
         }
 
         $AADCServerDetails += $Info
@@ -174,10 +183,17 @@ Function Get-PKIDetails {
     $PDC = (Get-ADDomain -Identity $ForestName -Credential $Credential -Server $ForestName).PDCEmulator    
     $PKI = Get-ADObject -Filter { objectClass -eq "pKIEnrollmentService" } -Server $PDC -Credential $Credential -SearchBase "CN=Enrollment Services,CN=Public Key Services,CN=Services,$((Get-ADRootDSE).ConfigurationNamingContext)"  -Properties DisplayName, DnsHostName | Select-Object DisplayName, DnsHostName, @{l = "OperatingSystem"; e = { (Get-ADComputer ($_.DNShostname -replace ".$ForestName") -Properties OperatingSystem -server $PDC -Credential $Credential).OperatingSystem } }, @{l = "IPv4Address"; e = { ([System.Net.Dns]::GetHostAddresses($_.DnsHostName) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n" } }
 
-    If ($PKI) {
-        $cert = invoke-command -ComputerName $PKI.DnsHostName -Credential $Credential -ScriptBlock { Get-ChildItem -Path cert:\LocalMachine\my | Where-Object { $_.issuer -eq $_.Subject } }    
+    If ($PKI) {        
         $PKIDetails = $PKI
-        Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "SecureHashAlgo" -value $cert.SignatureAlgorithm.FriendlyName
+        try {
+            if ( Test-WSMan -ComputerName $PKI.DnsHostName -ErrorAction SilentlyContinue) {
+                $cert = invoke-command -ComputerName $PKI.DnsHostName -Credential $Credential -ScriptBlock { Get-ChildItem -Path cert:\LocalMachine\my | Where-Object { $_.issuer -eq $_.Subject } }
+                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "SecureHashAlgo" -value $cert.SignatureAlgorithm.FriendlyName
+            }
+        }
+        catch {
+            Write-Out "WinRM access denied, can't obtain SHA information"
+        }
     }    
     
     Return $PKIDetails
@@ -328,12 +344,12 @@ Function Get-ADDHCPDetails {
             $DHCPDetails += [PSCustomObject]@{
                 ServerName         = $dhcpserver
                 IPAddress          = ([System.Net.Dns]::GetHostAddresses($dhcpserver) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n"
-                OperatingSystem    = (Get-CimInstance win32_operatingSystem -ComputerName $dhcpserver -Property Caption).Caption
+                OperatingSystem    = (Get-WmiObject win32_operatingSystem -ComputerName $dhcpserver -Property Caption).Caption
                 ScopeCount         = $Allscopes.count
                 InactiveScopeCount = $InactiveScopes.count
                 ScopeWithNoLease   = $NoLeaseScopes -join "`n"
                 NoLeaseScopeCount  = $NoLeaseScopes.count
-                IsVirtual          = ((Get-CimInstance Win32_ComputerSystem -ComputerName $dhcpserver).model).Contains("Virtual")
+                IsVirtual          = ((Get-WmiObject win32_operatingSystem -ComputerName $dhcpserver).model).Contains("Virtual")
             }
         }
         catch {}
@@ -533,7 +549,9 @@ Function Get-ADDomainDetails {
 
     # It needs WinRM being enabled on PDC 
     try {
-        $FSR2DFSRStatus = invoke-command -ComputerName $PDC -ScriptBlock { ((dfsrmig.exe /GetGlobalState )[0].replace("'", "") -split ": ")[1] } -Credential $Credential
+        if (Test-WSMan -ComputerName $PDC -ErrorAction SilentlyContinue) {
+            $FSR2DFSRStatus = invoke-command -ComputerName $PDC -ScriptBlock { ((dfsrmig.exe /GetGlobalState )[0].replace("'", "") -split ": ")[1] } -Credential $Credential
+        }
     }
     catch {
         $FSR2DFSRStatus = "WinRM access denied on $PDC"
@@ -541,17 +559,42 @@ Function Get-ADDomainDetails {
 
     foreach ($dc in $dcs) {
         if ( Test-Connection -ComputerName $dc -Count 1 -ErrorAction SilentlyContinue ) { 
-            $Results = invoke-command -ComputerName $dc -ScriptBlock { 
-                (Get-SmbServerConfiguration | Select-Object EnableSMB1Protocol), 
-                (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\'), 
-                ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0),
-                ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Server" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Server" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0),
-                ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0),
-                ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0),
-                ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0),
-                ((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server" -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1 -and (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server" -Name DisabledByDefault -ErrorAction SilentlyContinue).DisabledByDefault -eq 0),
-                (w32tm /query /source)
-            }  -Credential $Credential
+            try {
+                $NLParamters = ((([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\')).GetValueNames() | ForEach-Object { [PSCustomObject]@{ Parameter = $_; Value = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\').GetValue($_) } } | ForEach-Object { "$($_.parameter), $($_.value)" }) -join "`n"
+            }
+            catch { $NLParamters = "Reg not found" }
+            try {
+                $SSL2Client = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+            }
+            catch { $SSL2Client = "Reg not found" }
+            try {
+                $SSL2Server = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Server').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+            }
+            catch { $SSL2Server = "Reg not found" }
+            try {
+                $TLS10Client = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+            }
+            catch { $TLS10Client = "Reg not found" }
+            try {
+                $TLS10Server = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+            }
+            catch { $TLS10Server = "Reg not found" }
+            try {
+                $TLS11Client = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+            }
+            catch { $TLS11Client = "Reg not found" }
+            try {
+                $TLS11Client = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+            }
+            catch { $TLS11Client = "Reg not found" }
+            try {
+                $NTPServer = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters').GetValue('NTPServer')
+            }
+            catch { $NTPServer = "Reg not found" }
+
+            $results = ($NLParamters, $SSL2Client, $SSL2Server, $TLS10Client, $TLS10Server, $TLS11Client, $TLS11Client, $NTPServer)
+            $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).Close();
+
 
             $DomainDetails += [PSCustomObject]@{
                 Domain                      = $domain
@@ -565,20 +608,19 @@ Function Get-ADDomainDetails {
                 Sysvol                      = $sysvolStatus
                 FSR2DFSR                    = $FSR2DFSRStatus
                 LAPS                        = $null -ne (Get-ADObject -LDAPFilter "(name=ms-Mcs-AdmPwd)" -Server $PDC -Credential $Credential)
-                NTPServer                   = ($Results[8] | Select-Object -Unique) -join "`n"
+                NTPServer                   = ($Results[7] | Select-Object -Unique) -join "`n"
                 ADWSStatus                  = (Get-Service ADWS -computername $dc.Name  -ErrorAction SilentlyContinue ).StartType
-                SMB1Status                  = ($Results[0]).EnableSMB1Protocol
-                SSL2Client                  = $Results[2]
-                SSL2Server                  = $Results[3]
-                TLS1Client                  = $Results[4]
-                TLS1Server                  = $Results[5]
-                TLS11Client                 = $Results[6]
-                TLS11Server                 = $Results[7]
+                SSL2Client                  = $Results[1]
+                SSL2Server                  = $Results[2]
+                TLS1Client                  = $Results[3]
+                TLS1Server                  = $Results[4]
+                TLS11Client                 = $Results[5]
+                TLS11Server                 = $Results[6]
                 Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc).Status
-                NetlogonParameter           = ($Results[1]).vulnerablechannelallowlist
+                NetlogonParameter           = $Results[0]
                 ReadOnly                    = $dc.IsReadOnly
-                IsVirtual                   = ((Get-CimInstance Win32_ComputerSystem -ComputerName $dc).model).Contains("Virtual")
-                UndesiredFeatures           = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject  (Get-WindowsFeature -ComputerName $dc  -Credential $Credential | Where-Object Installed).Name -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
+                IsVirtual                   = ((Get-WmiObject Win32_ComputerSystem -ComputerName $dc).model).Contains("Virtual")
+                UndesiredFeatures           = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject  (Get-WindowsFeature -ComputerName $dc -Credential $Credential | Where-Object Installed).Name -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
             }
         }
     }
@@ -720,7 +762,7 @@ Function Get-ADUserDetails {
 
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
 
-    $AllUsers = Get-ADUser -Filter * -Server $PDC -Credential $Credential -Properties SamAccountName, Enabled, whenCreated, PasswordLastSet, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, LastLogonDate, LockedOut
+    $AllUsers = Get-ADUser -Filter * -Server $PDC -Properties SamAccountName, Enabled, whenCreated, PasswordLastSet, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, LastLogonTimestamp, LockedOut | Select-object SamAccountName, Enabled, whenCreated, PasswordLastSet, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, @{l = "Lastlogon"; e = { [DateTime]::FromFileTime($_.LastLogonTimestamp) } }, LockedOut    
 
     $UserDetails = [PSCustomObject]@{
         DomainName           = $DomainName
@@ -731,7 +773,7 @@ Function Get-ADUserDetails {
         Disabled             = @($AllUsers | Where-Object { $_.Enabled -eq $false }).count
         LockedOut            = @($AllUsers | Where-Object { $_.LockedOut -eq $true }).count        
         AccountExpired       = @($AllUsers | Where-Object { $_.AccountExpirationDate -lt (Get-Date) -AND $null -ne $_.AccountExpirationDate }).count
-        Inactive             = @($AllUsers | Where-Object { $_.LastLogonDate -lt (Get-Date).AddDays(-30) -AND $null -ne $_.LastLogonDate }).count
+        Inactive             = @($AllUsers | Where-Object { $_.LastLogon -lt (Get-Date).AddDays(-30) -AND $null -ne $_.LastLogon }).count
         PasswordNeverExpires = @($AllUsers | Where-Object { $_.PasswordNeverExpires -eq $true }).count        
     }
 
@@ -753,7 +795,7 @@ Function Get-BuiltInUserDetails {
     $BuiltInUsers = @()
 
     ForEach ($UserSID in $BuiltInUserSIDs ) {
-        $User = Get-ADUser -Server $PDC -Credential $Credential -Identity $UserSID[1] -Properties SamAccountName, WhenCreated, LastLogonDate, Enabled, LastBadPasswordAttempt, PasswordLastSet
+        $User = Get-ADUser -Server $PDC -Credential $Credential -Identity $UserSID[1] -Properties SamAccountName, WhenCreated, LastLogonTimestamp, Enabled, LastBadPasswordAttempt, PasswordLastSet | select-Object SamAccountName, WhenCreated, @{l = "Lastlogon"; e = { [DateTime]::FromFileTime($_.LastLogonTimestamp) } }, Enabled, LastBadPasswordAttempt, PasswordLastSet
     
         $BuiltInUsers += [PSCustomObject]@{
             DomainName             = $DomainName
@@ -761,7 +803,7 @@ Function Get-BuiltInUserDetails {
             UserName               = $user.SamAccountName
             Enabled                = $user.Enabled
             WhenCreated            = $user.WhenCreated
-            LastLogonDate          = $User.LastLogonDate
+            LastLogonDate          = $User.LastLogon
             PasswordLastSet        = $User.PasswordLastSet
             LastBadPasswordAttempt = $User.LastBadPasswordAttempt
             IsRenamed              = $UserSID[0] -ne $user.SamAccountName
@@ -875,96 +917,117 @@ Function Start-SecurityCheck {
     $DCs = (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).hostname
 
     ForEach ($DC in $DCs) {
-        $settings = invoke-command -ComputerName $DC -Credential $Credential -ScriptBlock { 
-            switch ((Get-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Lsa" -ErrorAction SilentlyContinue | Select-Object LmCompatibilityLevel).LmCompatibilityLevel) {
-                5 { "Send NTLMv2 response only. Refuse LM & NTLM" }
-                4 { "Send NTLMv2 response only. Refuse LM" }
-                3 { "Send NTLMv2 response only" }
-                2 { "Send NTLM response only" }
-                1 { "Send LM & NTLM - use NTLMv2 session security if negotiated" }
-                0 { "Send LM & NTLM responses" }
-                Default {
-                    switch ((Get-WmiObject -Class Win32_OperatingSystem).Caption ) {
-                        { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012 R2*" } { "Send NTLMv2 response only. Refuse LM & NTLM" }
-                        Default { "Not configured, OS default assumed" }
-                    }
+        $results = (
+            ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('LmCompatibilityLevel'),
+            ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('NoLMHash'),
+            ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('RestrictAnonymous'),
+            ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Services\NTDS\Parameters').GetValue('LDAPServerIntegrity'),
+            ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').GetValue('InactivityTimeoutSecs')
+        )
+        $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).Close()
+        
+        $NTLM = switch ($results[0]) {
+            5 { "Send NTLMv2 response only. Refuse LM & NTLM" }
+            4 { "Send NTLMv2 response only. Refuse LM" }
+            3 { "Send NTLMv2 response only" }
+            2 { "Send NTLM response only" }
+            1 { "Send LM & NTLM - use NTLMv2 session security if negotiated" }
+            0 { "Send LM & NTLM responses" }
+            Default {
+                switch ((Get-WmiObject -Class Win32_OperatingSystem -ComputerName $DC).Caption ) {
+                    { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012 R2*" } { "Send NTLMv2 response only. Refuse LM & NTLM" }
+                    Default { "Not configured, OS default assumed" }
                 }
             }
+        }
 
-            switch (Get-ItemPropertyValue -Path "HKLM:\System\CurrentControlSet\Control\Lsa" -Name "NoLMHash") {
-                1 { "Enabled" }
-                0 { "Disabled" }
-                Default { "Not configured" }
-            }
+        $LMHash = switch ($results[1]) {
+            1 { "Enabled" }
+            0 { "Disabled" }
+            Default { "Not configured" }
+        }
 
-            switch (Get-ItemPropertyValue -Path "HKLM:\System\CurrentControlSet\Control\Lsa" -Name "RestrictAnonymous") {
-                0 { "Disabled" }
-                1 { "Enabled" }
-                Default { "Not configured" }
-            }
+        $RestrictAnnon = switch ($results[2]) {
+            0 { "Disabled" }
+            1 { "Enabled" }
+            Default { "Not configured" }
+        }
 
-            switch (Get-ItemPropertyValue -Path "HKLM:\System\CurrentControlSet\Services\NTDS\Parameters" -Name "LDAPServerIntegrity") {
-                0 { "Does not requires signing" }
-                1 { "Requires signing" }
-                Default { "Not configured" }
-            }
+        $LDAPIntegrity = switch ($results[3]) {
+            0 { "Does not requires signing" }
+            1 { "Requires signing" }
+            Default { "Not configured" }
+        }
 
-            switch ( (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "InactivityTimeoutSecs" -ErrorAction SilentlyContinue).InactivityTimeoutSecs ) {
-                { $_ -le 900 -AND $_ -ne 0 -AND $_ -ne $null } { "900 or fewer second(s), but not 0: $($_)" }
-                { $_ -eq 0 } { "0 second" }
-                { $_ -gt 900 } { "More than 900 seconds: $($_) seconds" }
-                Default { 
-                    switch ((Get-WmiObject -Class Win32_OperatingSystem).Caption ) {
-                        { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012*" } { "OS default: 900 second" }
-                        Default { "Unlimited" }
-                    }
+        $InactivityTimeout = switch ( $results[4] ) {
+            { $_ -le 900 -AND $_ -ne 0 -AND $_ -ne $null } { "900 or fewer second(s), but not 0: $($_)" }
+            { $_ -eq 0 } { "0 second" }
+            { $_ -gt 900 } { "More than 900 seconds: $($_) seconds" }
+            Default { 
+                switch ((Get-WmiObject -Class Win32_OperatingSystem -ComputerName $DC).Caption ) {
+                    { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012*" } { "OS default: 900 second" }
+                    Default { "Unlimited" }
                 }
             }
+        }
 
-            $null = secedit.exe /export /areas USER_RIGHTS /cfg "$env:TEMP\secedit.cfg"
-            $seceditContent = Get-Content "$env:TEMP\secedit.cfg" 
+        $settings = ($NTLM, $LMHash, $RestrictAnnon, $LDAPIntegrity, $InactivityTimeout)   
+
+        if (Test-WSMan -ComputerName $DC -ErrorAction SilentlyContinue) {
+            try {
+                $settings += invoke-command -ComputerName $DC -Credential $Credential -ScriptBlock { 
+                    $null = secedit.exe /export /areas USER_RIGHTS /cfg "$env:TEMP\secedit.cfg"
+                    $seceditContent = Get-Content "$env:TEMP\secedit.cfg" 
             
-            $LocalLogonSIDs = ((($seceditContent | Select-String "SeInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
-            $LocalLogonUsers = $LocalLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                $User = $SID.Translate([System.Security.Principal.NTAccount])
-                $User.Value
-            }
-            $LocalLogonUsers -join "`n"
+                    $LocalLogonSIDs = ((($seceditContent | Select-String "SeInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+                    $LocalLogonUsers = $LocalLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                        $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                        $User = $SID.Translate([System.Security.Principal.NTAccount])
+                        $User.Value
+                    }
+                    $LocalLogonUsers -join "`n"
             
-            $RemoteLogonSIDs = ((($seceditContent | Select-String "SeRemoteInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
-            $RemoteLogonUsers = $RemoteLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                $User = $SID.Translate([System.Security.Principal.NTAccount])
-                $User.Value
-            }
-            $RemoteLogonUsers -join "`n"            
+                    $RemoteLogonSIDs = ((($seceditContent | Select-String "SeRemoteInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+                    $RemoteLogonUsers = $RemoteLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                        $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                        $User = $SID.Translate([System.Security.Principal.NTAccount])
+                        $User.Value
+                    }
+                    $RemoteLogonUsers -join "`n"            
 
-            $DenyNetworkLogonSIDs = ((($seceditContent | Select-String "SeDenyNetworkLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
-            $DenyNetworkLogonUsers = $DenyNetworkLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                $User = $SID.Translate([System.Security.Principal.NTAccount])
-                $User.Value
-            }
-            $DenyNetworkLogonUsers -join "`n"            
+                    $DenyNetworkLogonSIDs = ((($seceditContent | Select-String "SeDenyNetworkLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+                    $DenyNetworkLogonUsers = $DenyNetworkLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                        $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                        $User = $SID.Translate([System.Security.Principal.NTAccount])
+                        $User.Value
+                    }
+                    $DenyNetworkLogonUsers -join "`n"            
 
-            $DenyServiceLogonSIDs = ((($seceditContent | Select-String "SeDenyServiceLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
-            $DenyServiceLogonUsers = $DenyServiceLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                $User = $SID.Translate([System.Security.Principal.NTAccount])
-                $User.Value
-            }
-            $DenyServiceLogonUsers -join "`n"
+                    $DenyServiceLogonSIDs = ((($seceditContent | Select-String "SeDenyServiceLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+                    $DenyServiceLogonUsers = $DenyServiceLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                        $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                        $User = $SID.Translate([System.Security.Principal.NTAccount])
+                        $User.Value
+                    }
+                    $DenyServiceLogonUsers -join "`n"
 
-            $DenyBatchLogonSIDs = ((($seceditContent | Select-String "SeDenyBatchLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
-            $DenyBatchLogonUsers = $DenyBatchLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object {
-                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                $User = $SID.Translate([System.Security.Principal.NTAccount])
-                $User.Value
-            }
-            $DenyBatchLogonUsers -join "`n"
+                    $DenyBatchLogonSIDs = ((($seceditContent | Select-String "SeDenyBatchLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+                    $DenyBatchLogonUsers = $DenyBatchLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object {
+                        $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                        $User = $SID.Translate([System.Security.Principal.NTAccount])
+                        $User.Value
+                    }
+                    $DenyBatchLogonUsers -join "`n"
 
-            $null = Remove-Item "$env:TEMP\secedit.cfg"
+                    $null = Remove-Item "$env:TEMP\secedit.cfg"
+                }
+            }
+            catch {
+                $settings += ("Access denied", "Access denied", "Access denied", "Access denied", "Access denied")
+            }
+        }
+        else {
+            $settings += ("Access denied", "Access denied", "Access denied", "Access denied", "Access denied")
         }
 
         $SecuritySettings += [PSCustomObject]@{
@@ -1000,6 +1063,7 @@ function Get-UnusedNetlogonScripts {
     $netlogonPath = "\\$DomainName\netlogon"
     $scriptFiles = Get-ChildItem -Path $netlogonPath -File -Recurse | Select-Object -ExpandProperty FullName
     $scriptFiles = $scriptfiles -replace $DomainName, $DomainName.Split(".")[0] | Where-Object { $_ -ne $null } | Sort-Object -Unique
+    $referencedScripts = (Get-ADuser -filter * -Server $PDC -Properties ScriptPath | Where-Object { $_.ScriptPath } | Sort-Object ScriptPath -Unique).ScriptPath
     
 
     if ($scriptFiles) {
