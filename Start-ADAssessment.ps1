@@ -6,7 +6,12 @@
     Author : Nitish Kumar
     Performs Active Directory Forest Assessment
     version 1.0 | 06/06/2023 Initial version
-    The script is kept as much modular as possible so that functions can be modified or added without altering the entire script 
+    version 1.1 | 15/06/2023 Covered most areas though error proofing and dependency over wsman still remains
+
+    The script is kept as much modular as possible so that functions can be modified or added without altering the entire script
+    It should be run as administrator and preferably Enterprise Administrator to get complete data. Its advised to run in demonstration environment to be sure first
+
+    Disclaimer: This script is designed to only read data from the domain and should not cause any problems or change configurations but author do not claim to be responsible for any issues. Do due dilligence before running in the production environment
 #>
 
 Import-Module ActiveDirectory
@@ -371,6 +376,140 @@ Function Get-ADDHCPDetails {
     }
     
     return $DHCPDetails
+}
+
+# Returns all DHCP servers inventory along with reservations details
+Function Get-DHCPInventory {
+    [CmdletBinding()]
+    Param(    
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+    )
+    
+    # Get all Authorized DCs from AD configuration
+    $DHCPs = Get-DhcpServerInDC    
+    $Report = @()
+    $Reservations = @()
+
+    foreach ($dhcp in $DHCPs) {
+        $scopes = $null
+        $scopes = (Get-DhcpServerv4Scope -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue)
+        $Res = $scopes | ForEach-Object { Get-DHCPServerv4Lease -ComputerName $dhcp.DNSName -ScopeID $_.ScopeID } | Select-Object ScopeId, IPAddress, HostName, Description, ClientID, AddressState
+    
+        ForEach ($Temp in $Res ) {
+            $Reservation = [PSCustomObject]@{
+                ServerName   = $dhcp.DNSName
+                ScopeID      = $Temp.ScopeId
+                IPAddress    = $Temp.IPAddress
+                HostName     = $Temp.HostName
+                Description  = $Temp.Description
+                ClientID     = $Temp.ClientID
+                AddressState = $Temp.AddressState
+            } | select-object ServerName, ScopeID, IPAddress, HostName, Description, ClientID, AddressState
+            $Reservations += $Reservation
+        }
+
+        If ($null -ne $scopes) {
+            $GlobalDNSList = $null
+            #getting global DNS settings, in case scopes are configured to inherit these settings
+            $GlobalDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
+            Try { $Option015 = [String](Get-DhcpServerv4OptionValue -OptionId 015 -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
+            Catch { $Option015 = "" }
+
+            $scopes | ForEach-Object {
+                $row = "" | Select-Object Hostname, ScopeID, SubnetMask, Name, State, StartRange, EndRange, LeaseDuration, Description, DNS1, DNS2, DNS3, DNS4, DNS5, GDNS1, GDNS2, GDNS3, GDNS4, GDNS5, Router, DoGroupId, Option160, option015, Scopeoption015, Exclusions
+                Try { $DoGroupId = [String](Get-DhcpServerv4OptionValue -OptionId 234 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
+                Catch { $DoGroupId = "" }
+
+                Try { $Option160 = [String](Get-DhcpServerv4OptionValue -OptionId 160 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
+                Catch { $Option160 = "" }
+
+                Try { $ScopeOption015 = [String](Get-DhcpServerv4OptionValue -OptionId 015 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
+                Catch { $ScopeOption015 = "" }
+
+                $router = @()
+                Try { $router = (Get-DhcpServerv4OptionValue -ComputerName $dhcp.DNSName -OptionId 3 -ScopeID $_.ScopeId -ErrorAction:SilentlyContinue).Value }
+                Catch { $router = ("") }
+
+                $ScopeExclusions = @()
+                Try { $ScopeExclusions = Get-DhcpServerv4ExclusionRange -ComputerName $dhcp.DNSName -ScopeID $_.ScopeId -ErrorAction:SilentlyContinue }
+                Catch { $ScopeExclusions = ("") }
+
+                $Exclusions = ""
+                $z = 0
+                If ($ScopeExclusions) {
+                    ForEach ($ScopeExclusion in $ScopeExclusions) {
+                        $z++
+                        $ExclusionValue = [String]$ScopeExclusion.StartRange + "-" + [String]$ScopeExclusion.EndRange
+                        if ($z -ge 2) {	$Exclusions = $Exclusions + "," + $ExclusionValue } else { $Exclusions = $ExclusionValue }
+                    }
+                }
+
+                if ($router) {
+                    $row.Router = $router[0]
+                }
+                else {
+                    $row.Router = ""
+                }                
+                $row.Hostname = $dhcp.DNSName
+                $row.ScopeID = $_.ScopeID
+                $row.SubnetMask = $_.SubnetMask
+                $row.Name = $_.Name
+                $row.State = $_.State
+                $row.StartRange = $_.StartRange
+                $row.EndRange = $_.EndRange
+                $row.LeaseDuration = $_.LeaseDuration
+                $row.Description = $_.Description
+                $row.DoGroupId = $DoGroupId
+                $row.Option160 = $Option160
+                $row.Option015 = $Option015
+                $row.ScopeOption015 = $ScopeOption015
+                $row.Exclusions = $Exclusions
+                $ScopeDNSList = $null
+                $ScopeDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
+
+                If (($null -eq $ScopeDNSList) -and ($null -ne $GlobalDNSList)) {
+                    $row.GDNS1 = $GlobalDNSList[0]
+                    $row.GDNS2 = $GlobalDNSList[1]
+                    $row.GDNS3 = $GlobalDNSList[2]
+                    $row.GDNS4 = $GlobalDNSList[3]
+                    $row.GDNS5 = $GlobalDNSList[4]
+                }
+                ElseIf (($null -ne $ScopeDNSList) -and ($null -ne $GlobalDNSList)) {
+                    $row.GDNS1 = $GlobalDNSList[0]
+                    $row.GDNS2 = $GlobalDNSList[1]
+                    $row.GDNS3 = $GlobalDNSList[2]
+                    $row.GDNS4 = $GlobalDNSList[3]
+                    $row.GDNS5 = $GlobalDNSList[4]
+                    $row.DNS1 = $ScopeDNSList[0]
+                    $row.DNS2 = $ScopeDNSList[1]
+                    $row.DNS3 = $ScopeDNSList[2]
+                    $row.DNS4 = $ScopeDNSList[3]
+                    $row.DNS5 = $ScopeDNSList[4]
+                }
+                Else {
+                    $row.DNS1 = $ScopeDNSList[0]
+                    $row.DNS2 = $ScopeDNSList[1]
+                    $row.DNS3 = $ScopeDNSList[2]
+                    $row.DNS4 = $ScopeDNSList[3]
+                    $row.DNS5 = $ScopeDNSList[4]
+                }
+                $row
+                $Report += $row
+            }
+        }
+        Else {            
+            $row = "" | Select-Object Hostname, ScopeID, SubnetMask, Name, State, StartRange, EndRange, LeaseDuration, Description, DNS1, DNS2, DNS3, DNS4, DNS5, GDNS1, GDNS2, GDNS3, GDNS4, GDNS5, Router, DoGroupId, Option160, option015, Scopeoption015, Exclusions
+            $row.Hostname = $dhcp.DNSName
+            $Report += $row
+        }        
+    }
+    
+    $Details = [pscustomobject] @{
+        Inventory   = $Report
+        Reservation = $Reservations
+    }
+    
+    Return $Details
 }
 
 # Returns the details of empty OUs in the given domain
@@ -1484,11 +1623,17 @@ Function Get-ADForestDetails {
 
     If ($TrustDetails) {
         $TrustSummary = ($TrustDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Trust Summary</h2>")
-    }
+    }    
     
-    $DHCPDetails = Get-ADDHCPDetails -Credential $Credential
     If ($DHCPFlag) {
+        New-BaloonNotification -title "Caution" -message "Looking for all DHCP servesr in domain: $Domain and their scope details. It might take long time" -icon Warning
+        $DHCPDetails = Get-ADDHCPDetails -Credential $Credential
+        $DHCPInventory = Get-DHCPInventory
         $DHCPSummary = ($DHCPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Summary</h2>") -replace "`n", "<br>"
+        $DHCPInventorySummary = ($DHCPInventory.Inventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Inventory</h2>") -replace "`n", "<br>"
+        $DHCPResInventory = ($DHCPInventory.reservation | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Reservation Inventory</h2>") -replace "`n", "<br>"
+
+        New-BaloonNotification -title "Information" -message "DHCP Server information in domain: $Domain collected" -icon Info
     }
     
     #If ($PKIDetails) {
@@ -1539,7 +1684,7 @@ Function Get-ADForestDetails {
     $SysvolNetlogonPermSummary = ($SysvolNetlogonPermissions | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Sysvol and Netlogon Permissions Summary</h2>") -replace "`n", "<br>"
     $SecuritySummary = ($SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>") -replace "`n", "<br>" -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $SecuritySummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath
 }
 
