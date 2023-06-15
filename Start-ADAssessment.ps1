@@ -1,6 +1,6 @@
 #Requires -RunAsAdministrator
 #Requires -Version 3.0
-#Requires -Modules ActiveDirectory, DHCPServer, GroupPolicy, DnsServer
+#Requires -Modules ActiveDirectory, GroupPolicy, DnsServer
 
 <#  
     Author : Nitish Kumar
@@ -10,9 +10,16 @@
 #>
 
 Import-Module ActiveDirectory
-Import-Module DHCPServer
 Import-Module GroupPolicy
 Import-Module DnsServer
+
+if (Get-Module -ListAvailable -Name DHCPServer) {    
+    Import-Module DHCPServer
+    $DHCPFlag = $true
+}
+else {
+    $DHCPFlag = $false
+}
 
 # Output formating options
 $logopath = "https://camo.githubusercontent.com/239d9de795c471d44ad89783ec7dc03a76f5c0d60d00e457c181b6e95c6950b6/68747470733a2f2f6e69746973686b756d61722e66696c65732e776f726470726573732e636f6d2f323032322f31302f63726f707065642d696d675f32303232303732335f3039343534372d72656d6f766562672d707265766965772e706e67"
@@ -563,7 +570,7 @@ Function Get-ADDomainDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
-    $UndesiredFeatures = ("ADFS-Federation", "DHCP", "Telnet-Client", "WDS", "Web-Server", "Web-Application-Proxy")
+    $UndesiredFeatures = ("ADFS-Federation", "DHCP", "Telnet-Client", "WDS", "Web-Server", "Web-Application-Proxy", "FS-DFS-Namespace", "FS-DFS-Replication")
 
     $dcs = Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential
 
@@ -1478,19 +1485,24 @@ Function Get-ADForestDetails {
     If ($TrustDetails) {
         $TrustSummary = ($TrustDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Trust Summary</h2>")
     }
+    
     $DHCPDetails = Get-ADDHCPDetails -Credential $Credential
-    #If ($DHCPDetails) {
-    $DHCPSummary = ($DHCPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Summary</h2>") -replace "`n", "<br>"
-    #}
+    If ($DHCPFlag) {
+        $DHCPSummary = ($DHCPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Summary</h2>") -replace "`n", "<br>"
+    }
+    
     #If ($PKIDetails) {
     $PKISummary = ($PKIDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Certificate servers Summary</h2>") -replace '<td>SHA1RSA</td>', '<td bgcolor="red">SHA1RSA</td>'
     #}
+    
     #If ($ADSyncDetails) {
     $ADSyncSummary = ($ADSyncDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADSync servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
     #}
+    
     #If ($ADFSDetails) {
     $ADFSSummary = ($ADFSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADFS servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
     #}    
+    
     If ($ClientOSDetails) {        
         $ClientOSSummary = $ClientOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Client OS Summary</h2>"
     }
