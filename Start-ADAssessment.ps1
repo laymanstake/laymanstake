@@ -7,11 +7,30 @@
     Performs Active Directory Forest Assessment
     version 1.0 | 06/06/2023 Initial version
     version 1.1 | 15/06/2023 Covered most areas though error proofing and dependency over wsman still remains
+    version 1.2 | 16/06/2023 Number of small fixes included wrong calulations on empty groups
 
     The script is kept as much modular as possible so that functions can be modified or added without altering the entire script
     It should be run as administrator and preferably Enterprise Administrator to get complete data. Its advised to run in demonstration environment to be sure first
 
     Disclaimer: This script is designed to only read data from the domain and should not cause any problems or change configurations but author do not claim to be responsible for any issues. Do due dilligence before running in the production environment
+#>
+
+<#
+.SYNOPSIS
+    Start-ADAssessment.ps1 - Perform Active Directory assessment and generate a report.
+
+.DESCRIPTION
+    This script performs an assessment of Active Directory (AD) environment and generates a report with information
+    about domain controllers, replication status, DNS configuration, group policies, and more.
+
+.NOTES
+    - This script requires elevated privileges and should be run as an administrator.
+    - Ensure that the required PowerShell modules and dependencies are installed (e.g., RSAT tools).
+
+.EXAMPLE
+    Running the script would present a menu and would pick current forest or domain accordingly.
+    - Performs an assessment of the "example.com" domain and generates the report at the specified path.
+
 #>
 
 Import-Module ActiveDirectory
