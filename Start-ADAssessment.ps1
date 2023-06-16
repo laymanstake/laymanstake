@@ -714,6 +714,7 @@ Function Get-ADDomainDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
+    $DomainDetails = @()
     $UndesiredFeatures = ("ADFS-Federation", "DHCP", "Telnet-Client", "WDS", "Web-Server", "Web-Application-Proxy", "FS-DFS-Namespace", "FS-DFS-Replication")
 
     $dcs = Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential
@@ -787,6 +788,11 @@ Function Get-ADDomainDetails {
             $results = ($NLParamters, $SSL2Client, $SSL2Server, $TLS10Client, $TLS10Server, $TLS11Client, $TLS11Client, $NTPServer)
             $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).Close();
 
+            $InstalledFeatures = (Get-WindowsFeature -ComputerName $dc -Credential $Credential | Where-Object Installed).Name
+
+            if ($InstalledFeatures) {
+                $UndesiredFeatures = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject $InstalledFeatures  -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
+            }
 
             $DomainDetails += [PSCustomObject]@{
                 Domain                      = $domain
@@ -811,7 +817,7 @@ Function Get-ADDomainDetails {
                 Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc).Status
                 NetlogonParameter           = $Results[0]
                 ReadOnly                    = $dc.IsReadOnly                
-                UndesiredFeatures           = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject  (Get-WindowsFeature -ComputerName $dc -Credential $Credential | Where-Object Installed).Name -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
+                UndesiredFeatures           = $UndesiredFeatures
             }
         }
     }
@@ -922,22 +928,34 @@ Function Get-ADGroupDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
     )
 
-    $GroupDetails = @()
+    $GroupDetails = @()    
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
 
-    $AllGroups = Get-ADGroup -Filter { GroupCategory -eq "Security" } -Properties GroupScope, Members -Server $PDC -Credential $Credential
-    $GroupScopes = $AllGroups | Group-Object GroupScope
+    $AllGroups = Get-ADGroup -Filter { GroupCategory -eq "Security" } -Properties GroupScope -Server $PDC -Credential $Credential
+    $EmptyGroups = $AllGroups |  Where-Object { -NOT( Get-ADGroupMember $_ ) }
 
-    ForEach ($GroupScope in $GroupScopes) {
-        $EmptyGroups = ($GroupScope.Group | Where-Object { Get-ADGroup $_.DistinguishedName -Properties Members -Server $PDC | Where-Object { -not $_.members } })
+    $GroupDetails += [PSCustomObject]@{
+        DomainName      = $DomainName
+        GroupType       = "Global"
+        GroupCount      = ($AllGroups | Where-Object { $_.GroupScope -eq "Global" }).count
+        EmptyGroups     = ($EmptyGroups | Where-Object { $_.GroupScope -eq "Global" }).Name -join "`n"
+        EmptyGroupCount = ($EmptyGroups | Where-Object { $_.GroupScope -eq "Global" }).count
+    }
 
-        $GroupDetails += [PSCustomObject]@{
-            DomainName      = $DomainName
-            GroupType       = $GroupScope.Name
-            GroupCount      = $GroupScope.Count
-            EmptyGroups     = $EmptyGroups.Name -join "`n"
-            EmptyGroupCount = $EmptyGroups.count
-        }
+    $GroupDetails += [PSCustomObject]@{
+        DomainName      = $DomainName
+        GroupType       = "DomainLocal"
+        GroupCount      = ($AllGroups | Where-Object { $_.GroupScope -eq "DomainLocal" }).count
+        EmptyGroups     = ($EmptyGroups | Where-Object { $_.GroupScope -eq "DomainLocal" }).Name -join "`n"
+        EmptyGroupCount = ($EmptyGroups | Where-Object { $_.GroupScope -eq "DomainLocal" }).count
+    }
+
+    $GroupDetails += [PSCustomObject]@{
+        DomainName      = $DomainName
+        GroupType       = "Universal"
+        GroupCount      = ($AllGroups | Where-Object { $_.GroupScope -eq "Universal" }).count
+        EmptyGroups     = ($EmptyGroups | Where-Object { $_.GroupScope -eq "Universal" }).Name -join "`n"
+        EmptyGroupCount = ($EmptyGroups | Where-Object { $_.GroupScope -eq "Universal" }).count
     }
 
     return $GroupDetails
@@ -1790,9 +1808,9 @@ Function Get-ADForestDetails {
         New-BaloonNotification -title Information -message "Working over domain: $Domain related details."
         $TrustDetails += Get-ADTrustDetails -DomainName $domain -credential $Credential
         $DomainDetails += Get-ADDomainDetails -DomainName $domain -credential $Credential
-        New-BaloonNotification -title "Information" -message "Working over domain: $Domain Helath checks"
+        New-BaloonNotification -title "Information" -message "Working over domain: $Domain Health checks"
         $ADHealth += Test-ADHealth -DomainName $domain -Credential $Credential
-        New-BaloonNotification -title "Information" -message "The domain: $Domain Helath checks done"
+        New-BaloonNotification -title "Information" -message "The domain: $Domain Health checks done"
         New-BaloonNotification -title Information -message "Working over domain: $Domain DC inventory related details."
         $DCInventory += Get-SystemInfo -DomainName $domain -Credential $Credential -server ($DomainDetails | Where-Object { $_.Domain -eq $domain }).DCName
         New-BaloonNotification -title Information -message "The domain: $Domain DC inventory related details collected."
