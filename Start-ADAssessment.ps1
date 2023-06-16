@@ -1513,6 +1513,139 @@ function New-BaloonNotification {
     Get-EventSubscriber -SourceIdentifier "BalloonClicked_event"  -ErrorAction SilentlyContinue | Unregister-Event # In case if the Event Subscription is not disposed
 }
 
+# Returns AD health information in a tabular format for the given domain by running dcdiag against each domain controller in the given domain
+function Test-ADHealth {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+    )    
+
+    $Report = @()
+    $dcs = Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential
+
+    #foreach domain controller
+    foreach ($Dcserver in $dcs.hostname) {        
+        if (Test-Connection -ComputerName $Dcserver -Count 4 -Quiet) {
+            try {                
+                $setping = "OK"
+
+                # Netlogon Service Status
+                $DcNetlogon = Get-Service -ComputerName $Dcserver -Name "Netlogon" -ErrorAction SilentlyContinue
+                if ($DcNetlogon.Status -eq "Running") {
+                    $setnetlogon = "ok"
+                }
+                else {
+                    $setnetlogon = "$DcNetlogon.status"
+                }
+
+                #NTDS Service Status
+                $dcntds = Get-Service -ComputerName $Dcserver -Name "NTDS" -ErrorAction SilentlyContinue
+                if ($dcntds.Status -eq "running") {
+                    $setntds = "ok"
+                }
+                else {
+                    $setntds = "$dcntds.status"
+                }
+
+                #DNS Service Status
+                $dcdns = Get-Service -ComputerName $Dcserver -Name "DNS" -ea SilentlyContinue
+                if ($dcdns.Status -eq "running") {
+                    $setdcdns = "ok"
+                }
+                else {
+                    $setdcdns = "$dcdns.Status"
+                }
+
+                #Dcdiag netlogons "Checking now"
+                $dcdiagnetlogon = dcdiag /test:netlogons /s:$dcserver
+                if ($dcdiagnetlogon -match "passed test NetLogons")	{
+                    $setdcdiagnetlogon = "ok"
+                }
+                else {
+                    $setdcdiagnetlogon = (($dcdiagnetlogon | select-string "Error", "warning" | ForEach-Object { $_.line.trim() }) -join "`n") + "`n`nRun dcdiag /test:netlogons /s:$dcserver"
+                }
+
+                #Dcdiag services check
+                $dcdiagservices = dcdiag /test:services /s:$dcserver
+                if ($dcdiagservices -match "passed test services") {
+                    $setdcdiagservices = "ok"
+                }
+                else {
+                    $setdcdiagservices = (($dcdiagservices  | select-string "Error", "warning" | ForEach-Object { $_.line.trim() }) -join "`n") + "`n`nRun dcdiag /test:services /s:$dcserver"
+                }
+
+                #Dcdiag Replication Check
+                $dcdiagreplications = dcdiag /test:Replications /s:$dcserver
+                if ($dcdiagreplications -match "passed test Replications") {
+                    $setdcdiagreplications = "ok"
+                }
+                else {
+                    $setdcdiagreplications = (($dcdiagreplications  | select-string "Error", "warning" | ForEach-Object { $_.line.trim() }) -join "`n") + "`n`nRun dcdiag /test:Replications /s:$dcserver"
+                }
+
+                #Dcdiag FSMOCheck Check
+                $dcdiagFsmoCheck = dcdiag /test:FSMOCheck /s:$dcserver
+                if ($dcdiagFsmoCheck -match "passed test FsmoCheck") {
+                    $setdcdiagFsmoCheck = "ok"
+                }
+                else {
+                    $setdcdiagFsmoCheck = (($dcdiagFsmoCheck | select-string "Error", "warning" | ForEach-Object { $_.line.trim() }) -join "`n") + "`n`nRun dcdiag /test:FSMOCheck /s:$dcserver"
+                }
+
+                #Dcdiag Advertising Check
+                $dcdiagAdvertising = dcdiag /test:Advertising /s:$dcserver
+                if ($dcdiagAdvertising -match "passed test Advertising") {
+                    $setdcdiagAdvertising = "ok"
+                }
+                else {
+                    $setdcdiagAdvertising = (($dcdiagAdvertising | select-string "Error", "warning" | ForEach-Object { $_.line.trim() }) -join "`n") + "`n`nRun dcdiag /test:Advertising /s:$dcserver" 
+                }
+
+                $tryok = "ok"
+            }
+            catch {
+                Write-Output $_.Exception.Message
+            }
+
+            if ($tryok -eq "ok") {
+                $Report += [PSCustomObject]@{
+                    DCName              = $Dcserver
+                    Ping                = $setping
+                    Netlogon            = $setnetlogon
+                    NTDS                = $setntds
+                    DNS                 = $setdcdns
+                    DCDIAG_Netlogons    = $setdcdiagnetlogon
+                    DCDIAG_Services     = $setdcdiagservices
+                    DCDIAG_Replications = $setdcdiagreplications
+                    DCDIAG_FSMOCheck    = $setdcdiagFsmoCheck
+                    DCDIAG_Advertising  = $setdcdiagAdvertising
+                }
+                #set DC status
+                $setdcstatus = "ok"
+            }
+        }
+        else {
+            $setdcstatus = "DC is down"
+
+            $Report += [PSCustomObject]@{
+                DCName              = $Dcserver
+                Ping                = $setdcstatus
+                Netlogon            = $setdcstatus
+                NTDS                = $setdcstatus
+                DNS                 = $setdcstatus
+                DCDIAG_Netlogons    = $setdcstatus
+                DCDIAG_Services     = $setdcstatus
+                DCDIAG_Replications = $setdcstatus
+                DCDIAG_FSMOCheck    = $setdcstatus
+                DCDIAG_Advertising  = $setdcstatus
+            }            
+        }
+    }
+
+    Return $Report 
+}
+
 # The main function to perform assessment of AD Forest and produce results as html file
 Function Get-ADForestDetails {
     [CmdletBinding()]
@@ -1613,10 +1746,12 @@ Function Get-ADForestDetails {
 
     $ForestPrivGroupsSummary = ($ForestPrivGroups | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Forest-wide Priviledged groups Summary</h2>") -replace "`n", "<br>"
     
+    # PKI details to be picked from schema only if the script is being run from the forest level
     if ($forestcheck) {
         $PKIDetails = Get-PKIDetails -ForestName $forest -Credential $Credential
     }
 
+    # Setting up variables, which would collect the information from all the domains
     $TrustDetails = @()
     $DomainDetails = @()    
     $SiteDetails = @()
@@ -1642,6 +1777,7 @@ Function Get-ADForestDetails {
     $unusedScripts = @()
     $SysvolNetlogonPermissions = @()
     $DCInventory = @()
+    $ADHealth = @()
 
     if (!($forestcheck)) {
         $allDomains = $ChildDomain
@@ -1649,10 +1785,14 @@ Function Get-ADForestDetails {
 
     New-BaloonNotification -title "Information" -message "Summary details about forest: $forest done."
 
+    # This section collects information from all domains
     ForEach ($domain in $allDomains) {
         New-BaloonNotification -title Information -message "Working over domain: $Domain related details."
         $TrustDetails += Get-ADTrustDetails -DomainName $domain -credential $Credential
         $DomainDetails += Get-ADDomainDetails -DomainName $domain -credential $Credential
+        New-BaloonNotification -title "Information" -message "Working over domain: $Domain Helath checks"
+        $ADHealth += Test-ADHealth -DomainName $domain -Credential $Credential
+        New-BaloonNotification -title "Information" -message "The domain: $Domain Helath checks done"
         New-BaloonNotification -title Information -message "Working over domain: $Domain DC inventory related details."
         $DCInventory += Get-SystemInfo -DomainName $domain -Credential $Credential -server ($DomainDetails | Where-Object { $_.Domain -eq $domain }).DCName
         New-BaloonNotification -title Information -message "The domain: $Domain DC inventory related details collected."
@@ -1686,6 +1826,7 @@ Function Get-ADForestDetails {
         $unusedScripts += Get-UnusedNetlogonScripts -DomainName $domain -Credential $Credential        
     }    
 
+    # This scetion prepares HTML report
     If ($TrustDetails) {
         $TrustSummary = ($TrustDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Trust Summary</h2>")
     }    
@@ -1734,6 +1875,7 @@ Function Get-ADForestDetails {
     }
 
     $DomainSummary = ($DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>") -replace '<td>Reg not found</td>', '<td bgcolor="red">Reg not found</td>'
+    $DomainHealthSumamry = ($ADHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controller health Summary</h2>") -replace "`n", "<br>" -replace '<td>DC Down</td>', '<td bgcolor="red">DC Down</td>'
     $DNSSummary = ($DNSServerDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Servers Summary</h2>") -replace "`n", "<br>"
     $DNSZoneSummary = ($DNSZoneDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Zones Summary</h2>") -replace "`n", "<br>"
     $SitesSummary = ($SiteDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Sites Summary</h2>" ) -replace "`n", "<br>" -replace '<td>No DC in Site</td>', '<td bgcolor="red">No DC in Site</td>'
@@ -1752,7 +1894,7 @@ Function Get-ADForestDetails {
 
     New-BaloonNotification -title "Information" -message "Forest $forest details collected now, preparing html report"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory $DCSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DomainHealthSumamry $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory $DCSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath
 }
 
