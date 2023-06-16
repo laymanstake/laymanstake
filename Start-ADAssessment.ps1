@@ -1688,6 +1688,49 @@ function Test-ADHealth {
     Return $Report 
 }
 
+# Returns AD replication health for the given domain
+function Get-ADReplicationHealth {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+    ) 
+
+    $replicationData = @()    
+    $domainControllers = Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential    
+
+    foreach ($dc in $domainControllers) {
+        $dcName = $dc.Name        
+        $replicationInfo = Get-ADReplicationPartnerMetadata -Target $dcName -Credential $Credential
+        
+        $replicationFailures = Get-ADReplicationFailure -Target $dcName -Credential $Credential
+
+        foreach ($partner in $replicationInfo) {
+            $partnerData = Get-ADDomainController -Identity $partner.Partner -Server $DomainName -Credential $Credential
+
+            $replicationStatus = $partner.LastReplicationResult
+            $lastReplicationTime = $partner.LastReplicationSuccess
+            $LastReplicationAttempt = $partner.LastReplicationAttempt
+            $failure = $replicationFailures | Where-Object { $_.Partner -eq $partner.Partner }
+
+            $replicationData += [PSCustomObject] @{
+                DomainController           = $dcName
+                Partner                    = $partnerData.Name
+                ReplicationStatus          = $replicationStatus
+                LastReplicationSuccessTime = $lastReplicationTime
+                LastReplicationTimeAttempt = $LastReplicationAttempt
+                LastFailureTime            = $failure.LastFailureTime
+                FirstFailureTime           = $failure.FirstFailureTime
+                FailureCount               = $failure.FailureCount
+                FailureType                = $failure.FailureType
+                FailureError               = $failure.FailureError
+            }
+        }
+    }
+
+    return $replicationData
+}
+
 # The main function to perform assessment of AD Forest and produce results as html file
 Function Get-ADForestDetails {
     [CmdletBinding()]
@@ -1820,6 +1863,7 @@ Function Get-ADForestDetails {
     $SysvolNetlogonPermissions = @()
     $DCInventory = @()
     $ADHealth = @()
+    $ReplicationHealth = @()
 
     if (!($forestcheck)) {
         $allDomains = $ChildDomain
@@ -1834,6 +1878,7 @@ Function Get-ADForestDetails {
         $DomainDetails += Get-ADDomainDetails -DomainName $domain -credential $Credential
         New-BaloonNotification -title "Information" -message "Working over domain: $Domain Health checks"
         $ADHealth += Test-ADHealth -DomainName $domain -Credential $Credential
+        $ReplicationHealth += Get-ADReplicationHealth -DomainName $domain -Credential $Credential
         New-BaloonNotification -title "Information" -message "The domain: $Domain Health checks done"
         New-BaloonNotification -title Information -message "Working over domain: $Domain DC inventory related details."
         $DCInventory += Get-SystemInfo -DomainName $domain -Credential $Credential -server ($DomainDetails | Where-Object { $_.Domain -eq $domain }).DCName
@@ -1923,6 +1968,7 @@ Function Get-ADForestDetails {
 
     $DomainSummary = ($DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>") -replace '<td>Reg not found</td>', '<td bgcolor="red">Reg not found</td>'
     $DomainHealthSumamry = ($ADHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controller health Summary</h2>") -replace "`n", "<br>" -replace '<td>DC Down</td>', '<td bgcolor="red">DC Down</td>'
+    $ReplhealthSummary = ($ReplicationHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Replication health Summary</h2>") -replace "`n", "<br>"
     $DNSSummary = ($DNSServerDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Servers Summary</h2>") -replace "`n", "<br>"
     $DNSZoneSummary = ($DNSZoneDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Zones Summary</h2>") -replace "`n", "<br>"
     $SitesSummary = ($SiteDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Sites Summary</h2>" ) -replace "`n", "<br>" -replace '<td>No DC in Site</td>', '<td bgcolor="red">No DC in Site</td>'
@@ -1941,7 +1987,7 @@ Function Get-ADForestDetails {
 
     New-BaloonNotification -title "Information" -message "Forest $forest details collected now, preparing html report"
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DomainHealthSumamry $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory $DCSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DomainHealthSumamry $ReplhealthSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory $DCSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath
 }
 
