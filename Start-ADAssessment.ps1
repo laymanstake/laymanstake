@@ -803,8 +803,12 @@ Function Get-ADDomainDetails {
                 $NTPServer = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters').GetValue('NTPServer')
             }
             catch { $NTPServer = "Reg not found" }
+            try {
+                $NTPType = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters').GetValue('Type')
+            }
+            catch { $NTPType = "Reg not found" }
 
-            $results = ($NLParamters, $SSL2Client, $SSL2Server, $TLS10Client, $TLS10Server, $TLS11Client, $TLS11Client, $NTPServer)
+            $results = ($NLParamters, $SSL2Client, $SSL2Server, $TLS10Client, $TLS10Server, $TLS11Client, $TLS11Client, $NTPServer, $NTPType)
             $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).Close();
 
             $InstalledFeatures = (Get-WindowsFeature -ComputerName $dc -Credential $Credential | Where-Object Installed).Name
@@ -826,6 +830,7 @@ Function Get-ADDomainDetails {
                 FSR2DFSR                    = $FSR2DFSRStatus
                 LAPS                        = $null -ne (Get-ADObject -LDAPFilter "(name=ms-Mcs-AdmPwd)" -Server $PDC -Credential $Credential)
                 NTPServer                   = ($Results[7] | Select-Object -Unique) -join "`n"
+                NTPType                     = $Results[8]
                 ADWSStatus                  = (Get-Service ADWS -computername $dc.Name  -ErrorAction SilentlyContinue ).StartType
                 SSL2Client                  = $Results[1]
                 SSL2Server                  = $Results[2]
@@ -951,7 +956,7 @@ Function Get-ADGroupDetails {
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
 
     $AllGroups = Get-ADGroup -Filter { GroupCategory -eq "Security" } -Properties GroupScope -Server $PDC -Credential $Credential
-    $EmptyGroups = $AllGroups |  Where-Object { -NOT( Get-ADGroupMember $_ ) }
+    $EmptyGroups = $AllGroups |  Where-Object { -NOT( Get-ADGroupMember $_  -Server $PDC  -Credential $Credential) }
 
     $GroupDetails += [PSCustomObject]@{
         DomainName      = $DomainName
