@@ -725,6 +725,60 @@ Function Get-FineGrainedPasswordPolicy {
     return $FGPwdPolicyDetails
 }
 
+function Get-SMBv1Status {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$computername,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+    )
+
+    $result = @()
+    ForEach ($computer in $computername) {
+        $smbv1ClientEnabled = $null
+        $smbv1ServerEnabled = $null
+    
+        switch ((Get-WmiObject -Class Win32_OperatingSystem -ComputerName $Computer).Version) {
+            { $_ -like "5*" } { $OSversion = "Windows Server 2003" }
+            { $_ -like "6.0*" } { $OSversion = "Windows Server 2008" }
+            { $_ -like "6.1*" } { $OSversion = "Windows Server 2008 R2" }
+            { $_ -like "6.2*" } { $OSversion = "Windows Server 2012" }
+            { $_ -like "6.3*" } { $OSversion = "Windows Server 2012 R2" }
+            { $_ -like "10.0.14*" } { $OSversion = "Windows Server 2016" }
+            { $_ -like "10.0.17*" } { $OSversion = "Windows Server 2019" }
+            { $_ -like "10.0.19*" -OR $_ -like "10.0.2*" } { $OSversion = "Windows Server 2022" }
+            default { $OSversion = "Windows Server 2003" }
+        }
+
+        $smbv1ClientEnabled = (Get-Service -Name lanmanworkstation -ComputerName $Computer).DependentServices.name -contains "mrxsmb10"
+
+    
+        If ($OSversion -in ("Windows Server 2003", "Windows Server 2008")) {    
+            $ErrorActionPreference = "SilentlyContinue"
+            try {
+                $smbv1ServerEnabled = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $computer)).OpenSubKey('SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters').GetValue('EnableSMB') -eq 1
+            }
+            Catch {
+                $smbv1ServerEnabled = "Unknown"
+            }
+            $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $computer)).Close();
+        }
+        else {
+            $smbv1ServerEnabled = Invoke-Command -ComputerName $Computer -ScriptBlock { (Get-SmbServerConfiguration).EnableSMB1Protocol } -Credential $credential
+            if ($null -eq $smbv1ServerEnabled) {
+                $smbv1ServerEnabled = "Unknown"
+            }
+        }
+
+        $result += [PSCustomObject]@{
+            ComputerName       = $Computer
+            OperatingSystem    = $OSversion
+            SMBv1ClientEnabled = $smbv1ClientEnabled
+            SMBv1ServerEnabled = $smbv1ServerEnabled
+        }    
+    }
+    Return $result
+}
+
 # Returns the details of the given domain
 Function Get-ADDomainDetails {
     [CmdletBinding()]
@@ -817,6 +871,8 @@ Function Get-ADDomainDetails {
                 $UndesiredFeatures = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject $InstalledFeatures  -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
             }
 
+            $SMBStatus = Get-SMBv1Status -computername $dc.Name -Credential $Credential            
+
             $DomainDetails += [PSCustomObject]@{
                 Domain                      = $domain
                 DomainFunctionLevel         = (Get-ADDomain -Identity $DomainName -Credential $Credential).DomainMode
@@ -831,6 +887,8 @@ Function Get-ADDomainDetails {
                 LAPS                        = $null -ne (Get-ADObject -LDAPFilter "(name=ms-Mcs-AdmPwd)" -Server $PDC -Credential $Credential)
                 NTPServer                   = ($Results[7] | Select-Object -Unique) -join "`n"
                 NTPType                     = $Results[8]
+                SMBv1Client                 = $SMBStatus.SMBv1ClientEnabled
+                SMBv1Server                 = $SMBStatus.SMBv1ServerEnabled
                 ADWSStatus                  = (Get-Service ADWS -computername $dc.Name  -ErrorAction SilentlyContinue ).StartType
                 SSL2Client                  = $Results[1]
                 SSL2Server                  = $Results[2]
@@ -1765,7 +1823,7 @@ Function Get-ADForestDetails {
             $ADRSupport = "Enabled"		
         }		
         else {		
-            $ADRSupport = "Disabled"		
+            $ADRSupport = "Disabled"
         }
     }
 
@@ -1896,6 +1954,7 @@ Function Get-ADForestDetails {
         New-BaloonNotification -title Information -message "Working over domain: $Domain orpahed/lingering objects related details."
         $ObjectsToClean += Get-ADObjectsToClean -DomainName $domain -credential $Credential
         $OrphanedFSPDetails += Get-OrphanedFSP -DomainName $domain -credential $Credential
+        New-BaloonNotification -title Information -message "orpahed/lingering objects related details from domain: $Domain done."
         $ServerOSDetails += Get-DomainServerDetails -DomainName $domain -credential $Credential
         $ClientOSDetails += Get-DomainClientDetails -DomainName $domain -credential $Credential
         New-BaloonNotification -title "Caution" -message "Looking for ADFS/ ADSync server in domain: $Domain. It might take long time" -icon Warning
