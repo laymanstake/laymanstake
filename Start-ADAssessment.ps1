@@ -1932,7 +1932,7 @@ Function Get-ADForestDetails {
     $GPOInventory = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
     $SysvolNetlogonPermSummary = ($SysvolNetlogonPermissions | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Sysvol and Netlogon Permissions Summary</h2>") -replace "`n", "<br>"
     $SecuritySummary = ($SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>") -replace "`n", "<br>" -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
-    $DCSummary = ($DCInventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Sysvol and Netlogon Permissions Summary</h2>") -replace "`n", "<br>"
+    $DCSummary = ($DCInventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers Inventory</h2>") -replace "`n", "<br>"
 
     New-BaloonNotification -title "Information" -message "Forest $forest details collected now, preparing html report"
 
