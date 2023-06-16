@@ -1816,12 +1816,15 @@ Function Get-ADForestDetails {
         New-BaloonNotification -title Information -message "The domain: $Domain DC inventory related details collected."
         $SiteDetails += Get-ADSiteDetails -DomainName $domain -credential $Credential
         $privGroupDetails += Get-PrivGroupDetails -DomainName $domain -credential $Credential
+        New-BaloonNotification -title Information -message "Working over domain: $Domain user summary related details."
         $UserDetails += Get-ADUserDetails -DomainName $domain -credential $Credential
         $BuiltInUserDetails += Get-BuiltInUserDetails -DomainName $domain -credential $Credential
+        New-BaloonNotification -title Information -message "Working over domain: $Domain Group summary related details."
         $GroupDetails += Get-ADGroupDetails -DomainName $domain -credential $Credential
         $UndesiredAdminCount += Get-AdminCountDetails -DomainName $domain -credential $Credential
         $PasswordPolicyDetails += Get-ADPasswordPolicy -DomainName $domain -credential $Credential
         $FGPwdPolicyDetails += Get-FineGrainedPasswordPolicy -DomainName $domain -credential $Credential
+        New-BaloonNotification -title Information -message "Working over domain: $Domain orpahed/lingering objects related details."
         $ObjectsToClean += Get-ADObjectsToClean -DomainName $domain -credential $Credential
         $OrphanedFSPDetails += Get-OrphanedFSP -DomainName $domain -credential $Credential
         $ServerOSDetails += Get-DomainServerDetails -DomainName $domain -credential $Credential
@@ -1835,11 +1838,13 @@ Function Get-ADForestDetails {
         New-BaloonNotification -title "Information" -message "Lookup for ADFS/ ADSync server in domain: $Domain done."
         $DNSServerDetails += Get-ADDNSDetails -DomainName $domain -credential $Credential
         $DNSZoneDetails += Get-ADDNSZoneDetails -DomainName $domain -credential $Credential
+        New-BaloonNotification -title "Information" -message "Looking for empty OUs in domain: $Domain ."
         $EmptyOUDetails += Get-EmptyOUDetails -DomainName $domain -credential $Credential
         $GPOSummaryDetails += Get-ADGPOSummary -DomainName $domain -credential $Credential
         New-BaloonNotification -title "Information" -message "Working over domain: $Domain GPO related details."
         $GPODetails += Get-GPOInventory -DomainName $domain
         $SysvolNetlogonPermissions += Get-SysvolNetlogonPermissions -DomainName $domain -Credential $Credential 
+        New-BaloonNotification -title "Information" -message "Working over domain: $Domain security setting."
         $SecuritySettings += Start-SecurityCheck -DomainName $domain -Credential $Credential
         $unusedScripts += Get-UnusedNetlogonScripts -DomainName $domain -Credential $Credential        
     }    
