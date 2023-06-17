@@ -70,7 +70,7 @@ If ($logopath) {
 }
 
 # Number of functions to get the details of the environment
-# Returns the details of AD trusts in the given domain
+# This function retrieves detailed information about trust relationships in the Active Directory domain, including trust type and direction.
 Function Get-ADTrustDetails {
     [CmdletBinding()]
     Param(
@@ -119,6 +119,7 @@ Function Get-ADTrustDetails {
     Return $TrustDetails
 }
 
+# This function gathers information about Active Directory Federation Services (ADFS), including ADFS\ ADSync servers, certificates, and endpoints.
 Function Get-ADFSDetails {
     [CmdletBinding()]
     Param(
@@ -202,7 +203,7 @@ Function Get-ADFSDetails {
     return $AADCServerDetails, $ADFSServerDetails 
 }
 
-# Returns the details of the PKI servers
+# This function collects information about certificate authorities.
 Function Get-PKIDetails {
     [CmdletBinding()]
     Param(
@@ -231,7 +232,7 @@ Function Get-PKIDetails {
     Return $PKIDetails
 }
 
-# Returns the details of the DNS servers in the given domain
+# This function retrieves detailed information about the Active Directory DNS configuration.
 Function Get-ADDNSDetails {
     [CmdletBinding()]
     Param(
@@ -262,7 +263,7 @@ Function Get-ADDNSDetails {
     return $DNSServerDetails
 }
 
-# Returns the details of the DNS zones in the given DNS Server
+# This function provides detailed information about Active Directory DNS zones, including zone properties, zone transfers, and DNS server settings.
 Function Get-ADDNSZoneDetails {
     [CmdletBinding()]
     Param(
@@ -296,7 +297,7 @@ Function Get-ADDNSZoneDetails {
     return $DNSServerZoneDetails
 }
 
-# Return the group members recusrively from the given domain only, would skip foreign ones
+# This function recursively retrieves all members of an Active Directory group, including nested groups and their members.
 Function Get-ADGroupMemberRecursive {
     [CmdletBinding()]
     Param(
@@ -323,7 +324,7 @@ Function Get-ADGroupMemberRecursive {
     return $membersRecursive    
 }
 
-# Return the users with adminCount
+# This function identifies user accounts with the "AdminCount" attribute set, which can indicate privileged accounts and also which should not have admincount set.
 Function Get-AdminCountDetails {
     [CmdletBinding()]
     Param(
@@ -398,7 +399,7 @@ Function Get-ADDHCPDetails {
     return $DHCPDetails
 }
 
-# Returns all DHCP servers inventory along with reservations details
+# This function gathers information about DHCP servers in the Active Directory domain, including server configurations, scopes, and reservations.
 Function Get-DHCPInventory {
     [CmdletBinding()]
     Param(    
@@ -532,7 +533,7 @@ Function Get-DHCPInventory {
     Return $Details
 }
 
-# Returns the details of empty OUs in the given domain
+# This function identifies empty Organizational Units (OUs) in the Active Directory domain.
 Function Get-EmptyOUDetails {
     [CmdletBinding()]
     Param(
@@ -556,7 +557,7 @@ Function Get-EmptyOUDetails {
     return $EmptyOUDetails
 }
 
-# Returns the details of orphaned and lingering objects from given domain
+# This function identifies Active Directory objects that can be cleaned up, such as orphaned and lingering objects from given domain.
 Function Get-ADObjectsToClean {
     [CmdletBinding()]
     Param(
@@ -581,7 +582,7 @@ Function Get-ADObjectsToClean {
     return $ObjectsToClean
 }
 
-# Returns the details of unlinked GPOs in the given domain
+# This function summarizes Group Policy Objects (GPOs) in the Active Directory domain, including linked locations, and scope.
 Function Get-ADGPOSummary {
     [CmdletBinding()]
     Param(
@@ -620,7 +621,7 @@ Function Get-ADGPOSummary {
     return $UnlinkedGPODetails
 }
 
-# To return details of all GPOs and their WMI filter for the given domain
+# This function provides an inventory of GPOs in the Active Directory domain, including their names, scope, wmi filters and applied locations.
 Function Get-GPOInventory {
     [CmdletBinding()]
     Param(
@@ -658,7 +659,7 @@ Function Get-GPOInventory {
     return $GPOSummary
 }
 
-# Returns the details of Applied Password Policy in the given domain
+# This function retrieves the password policy settings configured in the Active Directory domain.
 Function Get-ADPasswordPolicy {
     [CmdletBinding()]
     Param(
@@ -684,7 +685,7 @@ Function Get-ADPasswordPolicy {
     return $DefaultPasswordPolicy
 }
 
-# Returns the details of Fine grained Password Policy in the given domain
+# This function retrieves the settings of fine-grained password policies in the Active Directory domain.
 Function Get-FineGrainedPasswordPolicy {
     [CmdletBinding()]
     Param(
@@ -726,6 +727,7 @@ Function Get-FineGrainedPasswordPolicy {
     return $FGPwdPolicyDetails
 }
 
+# This function checks the status of SMBv1 (Server Message Block version 1) on the local or remote systems.
 function Get-SMBv1Status {
     [CmdletBinding()]
     Param(
@@ -785,7 +787,7 @@ function Get-SMBv1Status {
     Return $result
 }
 
-# Returns the details of the given domain
+# This function gathers detailed information about the Active Directory domain, including domain name, domain controllers, forest, and domain functional levels.
 Function Get-ADDomainDetails {
     [CmdletBinding()]
     Param(
@@ -913,7 +915,7 @@ Function Get-ADDomainDetails {
     return $DomainDetails    
 }
 
-# Returns the AD site details of the given domain
+# This function provides detailed information about Active Directory sites, including site names, subnet assignments, and site links.
 Function Get-ADSiteDetails {
     [CmdletBinding()]
     Param(
@@ -974,7 +976,7 @@ Function Get-ADSiteDetails {
     return $SiteDetails
 }
 
-# Returns the priviledged group details of the given domain
+# This function retrieves information about privileged groups in the Active Directory domain.
 Function Get-PrivGroupDetails {
     [CmdletBinding()]
     Param(
@@ -1008,7 +1010,7 @@ Function Get-PrivGroupDetails {
     return $PrivGroups
 }
 
-# Returns the group details of the given domain
+# This function retrieves detailed information about Active Directory groups.
 Function Get-ADGroupDetails {
     [CmdletBinding()]
     Param(
@@ -1049,7 +1051,7 @@ Function Get-ADGroupDetails {
     return $GroupDetails
 }
 
-# Returns user summary details of the given domain
+# This function gathers detailed information about Active Directory user accounts, including user properties and account status.
 Function Get-ADUserDetails {
     [CmdletBinding()]
     Param(
@@ -1077,7 +1079,7 @@ Function Get-ADUserDetails {
     return $UserDetails
 }
 
-# Returns Builtin Admin/Guest details of the given domain
+# This function retrieves information about built-in user accounts in the Active Directory domain.
 Function Get-BuiltInUserDetails {
     [CmdletBinding()]
     Param(
@@ -1110,7 +1112,7 @@ Function Get-BuiltInUserDetails {
     return $BuiltInUsers    
 }
 
-# Return the details of Orphaned Foreign Security Principals for the given domain, be cautious as domain connectivity issues can flag false positive
+# This function identifies Orphaned Foreign Security Principals for the given domain, be cautious as domain connectivity issues can flag false positive.
 Function Get-OrphanedFSP {
     [CmdletBinding()]
     Param(
@@ -1145,7 +1147,7 @@ Function Get-OrphanedFSP {
     return $OrphanedFSPDetails
 }
 
-# Returns the Server OS sumamry of the given domain
+# This function gathers detailed information about servers in the Active Directory domain, including computer properties, operating system details, and stale info.
 Function Get-DomainServerDetails {
     [CmdletBinding()]
     Param(
@@ -1172,7 +1174,7 @@ Function Get-DomainServerDetails {
     return $DomainServerDetails
 }
 
-# Returns the Client OS sumamry of the given domain
+# This function gathers detailed information about client computers in the Active Directory domain, including computer properties, operating system details, and stale info.
 Function Get-DomainClientDetails {
     [CmdletBinding()]
     Param(
@@ -1202,7 +1204,7 @@ Function Get-DomainClientDetails {
     return $DomainClientDetails
 }
 
-# returns value of select security settings for the given domain by checking all DCs
+# The function performs various checks and assessments to identify unsecured configurations, potential security risks, and other security-related aspects.
 Function Start-SecurityCheck {
     [CmdletBinding()]
     Param(
@@ -1346,7 +1348,7 @@ Function Start-SecurityCheck {
     return $SecuritySettings
 }
 
-# Returns the unused scripts from Netlogon share of the given domain
+# This function identifies unused Netlogon scripts in the Active Directory domain.
 function Get-UnusedNetlogonScripts {
     [CmdletBinding()]
     Param(
@@ -1407,7 +1409,7 @@ function Get-PotentialSvcAccount {
 
 }
 
-# Returns the permissions on SYSVOL and NETLOGON shares of the given domain
+# This function retrieves the permissions set on the SYSVOL and NETLOGON shares in the Active Directory domain.
 function Get-SysvolNetlogonPermissions {
     [CmdletBinding()]
     Param(
@@ -1480,7 +1482,7 @@ function Get-SysvolNetlogonPermissions {
     return $SysvolNetlogonPermissions
 }
 
-# Returns the inventory of the given list of computers
+# This function collects detailed system information from client computers in the Active Directory domain, including hardware, software, and network configuration.
 Function Get-SystemInfo {
     [CmdletBinding()]
     Param(
@@ -1538,8 +1540,8 @@ Function Get-SystemInfo {
     Return $infoObject
 }
 
-# Function to send email
-function New-Email () {
+# This function generates an email message.
+function New-Email {
     [CmdletBinding()]
     param(
         [parameter(mandatory = $true)]$RecipientAddressTo,		
@@ -1590,7 +1592,7 @@ function New-Email () {
 
 }
 
-# For showing up baloon notification
+# This function creates a balloon notification to display on client computers.
 function New-BaloonNotification {
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)][String]$title,
@@ -1619,7 +1621,7 @@ function New-BaloonNotification {
     Get-EventSubscriber -SourceIdentifier "BalloonClicked_event"  -ErrorAction SilentlyContinue | Unregister-Event # In case if the Event Subscription is not disposed
 }
 
-# Returns AD health information in a tabular format for the given domain by running dcdiag against each domain controller in the given domain
+# This function performs a health check of the Active Directory environment, including checks for replication, DNS, AD trust, and other common issues.
 function Test-ADHealth {
     [CmdletBinding()]
     Param(
@@ -1752,7 +1754,7 @@ function Test-ADHealth {
     Return $Report 
 }
 
-# Returns AD replication health for the given domain
+# This function checks the replication health of domain controllers in the Active Directory domain.
 function Get-ADReplicationHealth {
     [CmdletBinding()]
     Param(
@@ -1794,7 +1796,7 @@ function Get-ADReplicationHealth {
     return $replicationData
 }
 
-# The main function to perform assessment of AD Forest and produce results as html file
+# This function retrieves detailed information about the Active Directory forest and generates the html report.
 Function Get-ADForestDetails {
     [CmdletBinding()]
     Param(        
