@@ -811,7 +811,7 @@ Function Get-ADDomainDetails {
     
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
 
-    if ((Get-ADObject -Server $PDC -SearchBase (Get-ADDomainController -Identity $PDC -Server $PDC -Credential $Credential).ComputerObjectDN -Filter { name -like "SYSVOL*" } -Properties replPropertyMetaData).ReplPropertyMetadata.count -gt 0) {
+    if ((Get-ADObject -Server $PDC -Filter { name -like "SYSVOL*" } -Properties replPropertyMetaData -Credential $Credential).ReplPropertyMetadata.count -gt 0) {
         $sysvolStatus = "DFSR"
     }
     else {
@@ -2073,15 +2073,15 @@ switch ($choice) {
     '2' {
         $Response = Read-host "Type the domain name or just press ENTER to select current domain :"
         if ($Response) {
-            $DomainName = $response -replace " ", ""
+            $DomainName = $response.trim()
         }
         else {
             $DomainName = (Get-ADDomain -Current LocalComputer).DNSRoot
         }
         Write-Output "Type Domain Admin credentials for $DomainName :"
-        [pscredential]$DomainCred = (Get-Credential)
+        #[pscredential]$DomainCred = (Get-Credential)
         $forestcheck = $false
-        Get-ADForestDetails -Credential $DomainCred -ChildDomain $DomainName
+        Get-ADForestDetails -Credential (Get-Credential) -ChildDomain $DomainName
     }
     default {
         Write-Output "Incorrect reponse, script terminated"
