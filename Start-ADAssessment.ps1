@@ -50,6 +50,7 @@ $logopath = "https://camo.githubusercontent.com/239d9de795c471d44ad89783ec7dc03a
 $ReportPath1 = "$env:USERPROFILE\desktop\ADReport_$(get-date -Uformat "%Y%m%d-%H%M%S").html"
 $CopyRightInfo = " @Copyright Niitsh Kumar <a href='https://github.com/laymanstake'>Visit nitishkumar.net</a>"
 [bool]$forestcheck = $false
+$logpath = "$env:USERPROFILE\desktop\ADReport_$(get-date -Uformat "%Y%m%d-%H%M%S").txt"
 
 # CSS codes to format the report
 $header = @"
@@ -70,6 +71,19 @@ If ($logopath) {
 }
 
 # Number of functions to get the details of the environment
+
+function Write-Log {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$logtext,
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$logpath
+    )
+
+    $Stamp = (Get-Date).toString("yyyy/MM/dd HH:mm:ss")
+    $LogMessage = "$Stamp : $logtext"
+    Add-content $logpath -value $LogMessage
+}
+
 # This function retrieves detailed information about trust relationships in the Active Directory domain, including trust type and direction.
 Function Get-ADTrustDetails {
     [CmdletBinding()]
@@ -243,7 +257,7 @@ Function Get-ADDNSDetails {
     $DNSServerDetails = @()
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator    
     
-    $DNSServers = (Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { (Get-WindowsFeature -ComputerName $_.name -Name DNS -Credential $Credential) } | Select-Object Name, IPv4Address
+    $DNSServers = (Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { ((Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { (Get-WmiObject  -Class Win32_serverfeature  -ComputerName $_.Name | Where-Object { $_.Name -like "DNS Server" }) } | Select-Object Name, IPv4Address) } | Select-Object Name, IPv4Address
 
     ForEach ($DNSServer in $DNSServers) {
         $Scavenging = Get-DnsServerScavenging -ComputerName $DNSServer.Name
@@ -1810,6 +1824,11 @@ Function Get-ADForestDetails {
     # Collecting information about current Forest configuration
     $ForestInfo = Get-ADForest -Current LocalComputer -Credential $Credential
     $forest = $ForestInfo.RootDomain
+    
+    $message = "Collecting data about forest: $forest ."
+    New-BaloonNotification -title "Information" -message $message
+    Write-Log -logtext $message -logpath $logpath
+
     $allDomains = $ForestInfo.Domains
     $ForestGC = $ForestInfo.GlobalCatalogs    
     $forestFL = $ForestInfo.ForestMode
@@ -1934,52 +1953,108 @@ Function Get-ADForestDetails {
         $allDomains = $ChildDomain
     }
 
-    New-BaloonNotification -title "Information" -message "Summary details about forest: $forest done."
+    $message = "Summary details about forest: $forest done."
+    New-BaloonNotification -title "Information" -message $message
+    Write-Log -logtext $message -logpath $logpath
 
     # This section collects information from all domains
     ForEach ($domain in $allDomains) {
-        New-BaloonNotification -title Information -message "Working over domain: $Domain related details."
+        $message = "Working over domain: $Domain related details."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+
         $TrustDetails += Get-ADTrustDetails -DomainName $domain -credential $Credential
-        $DomainDetails += Get-ADDomainDetails -DomainName $domain -credential $Credential
-        New-BaloonNotification -title "Information" -message "Working over domain: $Domain Health checks"
+        $DomainDetails += Get-ADDomainDetails -DomainName $domain -credential $Credential        
+        
+        $message = "Working over domain: $Domain Health checks"
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+        
         $ADHealth += Test-ADHealth -DomainName $domain -Credential $Credential
-        $ReplicationHealth += Get-ADReplicationHealth -DomainName $domain -Credential $Credential
-        New-BaloonNotification -title "Information" -message "The domain: $Domain Health checks done"
-        New-BaloonNotification -title Information -message "Working over domain: $Domain DC inventory related details."
+        $ReplicationHealth += Get-ADReplicationHealth -DomainName $domain -Credential $Credential        
+        
+        $message = "The domain: $Domain Health checks done"
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+        
+        $message = "Working over domain: $Domain DC inventory related details."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+        
         $DCInventory += Get-SystemInfo -DomainName $domain -Credential $Credential -server ($DomainDetails | Where-Object { $_.Domain -eq $domain }).DCName
-        New-BaloonNotification -title Information -message "The domain: $Domain DC inventory related details collected."
+        
+        $message = "The domain: $Domain DC inventory related details collected."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+
         $SiteDetails += Get-ADSiteDetails -DomainName $domain -credential $Credential
         $privGroupDetails += Get-PrivGroupDetails -DomainName $domain -credential $Credential
-        New-BaloonNotification -title Information -message "Working over domain: $Domain user summary related details."
+        
+        $message = "Working over domain: $Domain user summary related details."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+        
         $UserDetails += Get-ADUserDetails -DomainName $domain -credential $Credential
         $BuiltInUserDetails += Get-BuiltInUserDetails -DomainName $domain -credential $Credential
-        New-BaloonNotification -title Information -message "Working over domain: $Domain Group summary related details."
+        
+        $message = "Working over domain: $Domain Group summary related details."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+        
         $GroupDetails += Get-ADGroupDetails -DomainName $domain -credential $Credential
         $UndesiredAdminCount += Get-AdminCountDetails -DomainName $domain -credential $Credential
         $PasswordPolicyDetails += Get-ADPasswordPolicy -DomainName $domain -credential $Credential
         $FGPwdPolicyDetails += Get-FineGrainedPasswordPolicy -DomainName $domain -credential $Credential
-        New-BaloonNotification -title Information -message "Working over domain: $Domain orpahed/lingering objects related details."
+        
+        $message = "Working over domain: $Domain orpahed/lingering objects related details."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+        
         $ObjectsToClean += Get-ADObjectsToClean -DomainName $domain -credential $Credential
         $OrphanedFSPDetails += Get-OrphanedFSP -DomainName $domain -credential $Credential
-        New-BaloonNotification -title Information -message "orpahed/lingering objects related details from domain: $Domain done."
+        
+        $message = "The orpahed/lingering objects related details from domain: $Domain done."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+        
         $ServerOSDetails += Get-DomainServerDetails -DomainName $domain -credential $Credential
         $ClientOSDetails += Get-DomainClientDetails -DomainName $domain -credential $Credential
-        New-BaloonNotification -title "Caution" -message "Looking for ADFS/ ADSync server in domain: $Domain. It might take long time" -icon Warning
+        
+        $message = "Looking for ADFS/ ADSync server in domain: $Domain. It might take long time"
+        New-BaloonNotification -title "Caution" -message $message -icon Warning
+        Write-Log -logtext $message -logpath $logpath
+
         $ADSyncDetail, $ADFSDetail = Get-ADFSDetails -DomainName $domain -credential $Credential
         $ADFSDetail = $ADFSDetail | Sort-Object * -Unique
         $ADFSDetails += $ADFSDetail
         $ADSyncDetail = $ADSyncDetail | Sort-Object * -Unique
         $ADSyncDetails += $ADSyncDetail
-        New-BaloonNotification -title "Information" -message "Lookup for ADFS ($ADFSDetails.count) / ADSync ($ADSyncDetails.count) server in domain: $Domain done."
+        
+        $message = "Lookup for ADFS ($($ADFSDetails.count)) / ADSync ($($ADSyncDetails.count)) server in domain: $Domain done."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath        
+        
         $DNSServerDetails += Get-ADDNSDetails -DomainName $domain -credential $Credential
         $DNSZoneDetails += Get-ADDNSZoneDetails -DomainName $domain -credential $Credential
-        New-BaloonNotification -title "Information" -message "Looking for empty OUs in domain: $Domain ."
+        
+        $message = "Looking for empty OUs in domain: $Domain ."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath        
+        
         $EmptyOUDetails += Get-EmptyOUDetails -DomainName $domain -credential $Credential
         $GPOSummaryDetails += Get-ADGPOSummary -DomainName $domain -credential $Credential
-        New-BaloonNotification -title "Information" -message "Working over domain: $Domain GPO related details."
+        
+        $message = "Working over domain: $Domain GPO related details."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath        
+        
         $GPODetails += Get-GPOInventory -DomainName $domain
         $SysvolNetlogonPermissions += Get-SysvolNetlogonPermissions -DomainName $domain -Credential $Credential 
-        New-BaloonNotification -title "Information" -message "Working over domain: $Domain security setting."
+        
+        $message = "Working over domain: $Domain security setting."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath        
+        
         $SecuritySettings += Start-SecurityCheck -DomainName $domain -Credential $Credential
         $unusedScripts += Get-UnusedNetlogonScripts -DomainName $domain -Credential $Credential        
     }    
@@ -1989,15 +2064,20 @@ Function Get-ADForestDetails {
         $TrustSummary = ($TrustDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Trust Summary</h2>")
     }    
     
-    If ($DHCPFlag) {
-        New-BaloonNotification -title "Caution" -message "Looking for all DHCP servesr in forest: $forest and their scope details. It might take long time" -icon Warning
+    If ($DHCPFlag) {        
+        $message = "Looking for all DHCP servesr in forest: $forest and their scope details. It might take long time"
+        New-BaloonNotification -title "Caution" -message $message -icon Warning
+        Write-Log -logtext $message -logpath $logpath
+
         $DHCPDetails = Get-ADDHCPDetails -Credential $Credential
         $DHCPInventory = Get-DHCPInventory
         $DHCPSummary = ($DHCPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Summary</h2>") -replace "`n", "<br>"
         $DHCPInventorySummary = ($DHCPInventory.Inventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Inventory</h2>") -replace "`n", "<br>" -replace '<td>Inactive</td>', '<td bgcolor="red">Inactive</td>'
         $DHCPResInventory = ($DHCPInventory.reservation | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Reservation Inventory</h2>") -replace "`n", "<br>"
-
-        New-BaloonNotification -title "Information" -message "DHCP Server information in forest: $forest collected"
+        
+        $message = "DHCP Server information in forest: $forest collected"
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
     }
     
     #If ($PKIDetails) {
@@ -2050,8 +2130,10 @@ Function Get-ADForestDetails {
     $SysvolNetlogonPermSummary = ($SysvolNetlogonPermissions | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Sysvol and Netlogon Permissions Summary</h2>") -replace "`n", "<br>"
     $SecuritySummary = ($SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>") -replace "`n", "<br>" -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
     $DCSummary = ($DCInventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers Inventory</h2>") -replace "`n", "<br>"
-
-    New-BaloonNotification -title "Information" -message "Forest $forest details collected now, preparing html report"
+    
+    $message = "Forest $forest details collected now, preparing html report"
+    New-BaloonNotification -title "Information" -message $message
+    Write-Log -logtext $message -logpath $logpath
 
     $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DomainHealthSumamry $ReplhealthSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory $DCSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath
@@ -2070,7 +2152,21 @@ switch ($choice) {
     '1' {
         Write-Output "Type Forest Enterprise Admin credentials:"
         $forestcheck = $true
-        Get-ADForestDetails -Credential (Get-Credential)        
+        $Credential = (Get-Credential)
+        try { 
+            $test = Get-ADForest -Current LocalComputer -Credential $Credential 
+        }
+        catch { 
+            $test = $null 
+        }
+
+        if ($test) {
+            Get-ADForestDetails -Credential $Credential
+        }
+        else {
+            Write-Host "Credentials not working"
+            break
+        }
     }   
     '2' {
         $Response = Read-host "Type the domain name or just press ENTER to select current domain :"
@@ -2080,15 +2176,29 @@ switch ($choice) {
         else {
             $DomainName = (Get-ADDomain -Current LocalComputer).DNSRoot
         }
-        Write-Output "Type Domain Admin credentials for $DomainName :"
-        #[pscredential]$DomainCred = (Get-Credential)
         $forestcheck = $false
-        Get-ADForestDetails -Credential (Get-Credential) -ChildDomain $DomainName
+        Write-Output "Type Domain Admin credentials for $DomainName :"
+        
+        $DomainCred = (Get-Credential)
+        try { 
+            $test = Get-ADDomain $DomainName -Credential $DomainCred
+        }
+        catch { 
+            $test = $null 
+        }
+
+        if ($test) {
+            Get-ADForestDetails -Credential $DomainCred -ChildDomain $DomainName
+        }
+        else {
+            Write-Host "Credentials not working"
+            break
+        }
     }
     default {
         Write-Output "Incorrect reponse, script terminated"
         Start-Sleep 2
-        exit
+        break
     }
 }
 
