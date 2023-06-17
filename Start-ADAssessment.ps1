@@ -153,7 +153,7 @@ Function Get-ADFSDetails {
     foreach ($server in $adfsServers) {
         try {
             if (Test-WSMan -ComputerName $server -ErrorAction SilentlyContinue) {
-                $ADFSproperties = invoke-command -ComputerName $server -ScriptBlock { import-module ADFS; Get-ADFSSyncProperties; (Get-ADFSProperties).Identifier } -Credential $Credential
+                $ADFSproperties = invoke-command -ComputerName $server -ScriptBlock { import-module ADFS; Get-ADFSSyncProperties; (Get-ADFSProperties).Identifier; (Get-AdfsCertificate | Select-Object @{l = "certificate"; e = { "$($_.certificateType), $($_.Certificate.NotAfter), $($_.thumbprint)" } }).certificate } -Credential $Credential
             }
         }
         catch {
@@ -172,6 +172,7 @@ Function Get-ADFSDetails {
             OperatingSystem = (Get-ADComputer $server -server $PDC -Credential $Credential -properties OperatingSystem).OperatingSystem
             IsMaster        = $isMaster
             ADFSName        = $ADFSproperties[1]
+            Certificate     = ($ADFSproperties[2], $ADFSproperties[3], $ADFSproperties[4]) -join "`n"
         }
 
         $ADFSServerDetails += $serverInfo
@@ -1781,12 +1782,11 @@ function Get-ADReplicationHealth {
                 Partner                    = $partnerData.Name
                 ReplicationStatus          = $replicationStatus
                 LastReplicationSuccessTime = $lastReplicationTime
-                LastReplicationTimeAttempt = $LastReplicationAttempt
-                LastFailureTime            = $failure.LastFailureTime
-                FirstFailureTime           = $failure.FirstFailureTime
-                FailureCount               = $failure.FailureCount
-                FailureType                = $failure.FailureType
-                FailureError               = $failure.FailureError
+                LastReplicationTimeAttempt = $LastReplicationAttempt                
+                FirstFailureTime           = $failure.FirstFailureTime -join "`n"
+                FailureCount               = $failure.FailureCount -join "`n"
+                FailureType                = $failure.FailureType -join "`n"
+                FailureError               = $failure.LastError -join "`n"
             }
         }
     }
@@ -1968,7 +1968,7 @@ Function Get-ADForestDetails {
         $ADFSDetails += $ADFSDetail
         $ADSyncDetail = $ADSyncDetail | Sort-Object * -Unique
         $ADSyncDetails += $ADSyncDetail
-        New-BaloonNotification -title "Information" -message "Lookup for ADFS/ ADSync server in domain: $Domain done."
+        New-BaloonNotification -title "Information" -message "Lookup for ADFS ($ADFSDetails.count) / ADSync ($ADSyncDetails.count) server in domain: $Domain done."
         $DNSServerDetails += Get-ADDNSDetails -DomainName $domain -credential $Credential
         $DNSZoneDetails += Get-ADDNSZoneDetails -DomainName $domain -credential $Credential
         New-BaloonNotification -title "Information" -message "Looking for empty OUs in domain: $Domain ."
@@ -2007,7 +2007,7 @@ Function Get-ADForestDetails {
     #}
     
     #If ($ADFSDetails) {
-    $ADFSSummary = ($ADFSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADFS servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
+    $ADFSSummary = ($ADFSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADFS servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>' -replace "`n", "<br>"
     #}    
     
     If ($ClientOSDetails) {        
