@@ -763,7 +763,12 @@ function Get-SMBv1Status {
             $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $computer)).Close();
         }
         else {
-            $smbv1ServerEnabled = Invoke-Command -ComputerName $Computer -ScriptBlock { (Get-SmbServerConfiguration).EnableSMB1Protocol } -Credential $credential
+            try {
+                $smbv1ServerEnabled = Invoke-Command -ComputerName $Computer -ScriptBlock { (Get-SmbServerConfiguration).EnableSMB1Protocol } -Credential $credential
+            }
+            catch {
+                $smbv1ServerEnabled = "Unknown"
+            }
             if ($null -eq $smbv1ServerEnabled) {
                 $smbv1ServerEnabled = "Unknown"
             }
