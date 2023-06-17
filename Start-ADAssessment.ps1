@@ -2030,7 +2030,7 @@ Function Get-ADForestDetails {
         $ADSyncDetail = $ADSyncDetail | Sort-Object * -Unique
         $ADSyncDetails += $ADSyncDetail
         
-        $message = "Lookup for ADFS ($($ADFSDetails.count)) / ADSync ($($ADSyncDetails.count)) server in domain: $Domain done."
+        $message = "Lookup for ADFS ($($ADFSDetail.count)) / ADSync ($($ADSyncDetail.count)) server in domain: $Domain done."
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath        
         
