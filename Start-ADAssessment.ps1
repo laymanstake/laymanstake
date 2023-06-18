@@ -1345,141 +1345,159 @@ Function Start-SecurityCheck {
     $DCs = (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).hostname
 
     ForEach ($DC in $DCs) {
-        try {
-            $results = (
+        if (Test-Connection -ComputerName $Dc -Count 4 -Quiet) {
+            try {
+                $results = (
             ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('LmCompatibilityLevel'),
             ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('NoLMHash'),
             ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('RestrictAnonymous'),
             ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Services\NTDS\Parameters').GetValue('LDAPServerIntegrity'),
             ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').GetValue('InactivityTimeoutSecs')
-            )
-            $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).Close()
-            $results = $null
-        }
-        catch {
-            Write-Log -logtext "Could not check for security related registry keys on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
-        }
-        if ($results) {
-            $NTLM = switch ($results[0]) {
-                5 { "Send NTLMv2 response only. Refuse LM & NTLM" }
-                4 { "Send NTLMv2 response only. Refuse LM" }
-                3 { "Send NTLMv2 response only" }
-                2 { "Send NTLM response only" }
-                1 { "Send LM & NTLM - use NTLMv2 session security if negotiated" }
-                0 { "Send LM & NTLM responses" }
-                Default {
-                    switch ((Get-ADCOmputer $dc -Properties operatingsystem).operatingsystem ) {
-                        { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012 R2*" } { "Send NTLMv2 response only. Refuse LM & NTLM" }
-                        Default { "Not configured, OS default assumed" }
-                    }
-                }
-            }
-
-            $LMHash = switch ($results[1]) {
-                1 { "Enabled" }
-                0 { "Disabled" }
-                Default { "Not configured" }
-            }
-
-            $RestrictAnnon = switch ($results[2]) {
-                0 { "Disabled" }
-                1 { "Enabled" }
-                Default { "Not configured" }
-            }
-
-            $LDAPIntegrity = switch ($results[3]) {
-                0 { "Does not requires signing" }
-                1 { "Requires signing" }
-                Default { "Not configured" }
-            }
-
-            $InactivityTimeout = switch ( $results[4] ) {
-                { $_ -le 900 -AND $_ -ne 0 -AND $_ -ne $null } { "900 or fewer second(s), but not 0: $($_)" }
-                { $_ -eq 0 } { "0 second" }
-                { $_ -gt 900 } { "More than 900 seconds: $($_) seconds" }
-                Default { 
-                    switch ((Get-ADCOmputer $dc -Properties operatingsystem).operatingsystem ) {
-                        { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012*" } { "OS default: 900 second" }
-                        Default { "Unlimited" }
-                    }
-                }
-            }
-        }
-
-        $settings = ($NTLM, $LMHash, $RestrictAnnon, $LDAPIntegrity, $InactivityTimeout)   
-
-        if (Test-WSMan -ComputerName $DC -ErrorAction SilentlyContinue) {
-            try {
-                $settings += invoke-command -ComputerName $DC -Credential $Credential -ScriptBlock { 
-                    $null = secedit.exe /export /areas USER_RIGHTS /cfg "$env:TEMP\secedit.cfg"
-                    $seceditContent = Get-Content "$env:TEMP\secedit.cfg" 
-            
-                    $LocalLogonSIDs = ((($seceditContent | Select-String "SeInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
-                    $LocalLogonUsers = $LocalLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                        $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                        $User = $SID.Translate([System.Security.Principal.NTAccount])
-                        $User.Value
-                    }
-                    $LocalLogonUsers -join "`n"
-            
-                    $RemoteLogonSIDs = ((($seceditContent | Select-String "SeRemoteInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
-                    $RemoteLogonUsers = $RemoteLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                        $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                        $User = $SID.Translate([System.Security.Principal.NTAccount])
-                        $User.Value
-                    }
-                    $RemoteLogonUsers -join "`n"            
-
-                    $DenyNetworkLogonSIDs = ((($seceditContent | Select-String "SeDenyNetworkLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
-                    $DenyNetworkLogonUsers = $DenyNetworkLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                        $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                        $User = $SID.Translate([System.Security.Principal.NTAccount])
-                        $User.Value
-                    }
-                    $DenyNetworkLogonUsers -join "`n"            
-
-                    $DenyServiceLogonSIDs = ((($seceditContent | Select-String "SeDenyServiceLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
-                    $DenyServiceLogonUsers = $DenyServiceLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                        $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                        $User = $SID.Translate([System.Security.Principal.NTAccount])
-                        $User.Value
-                    }
-                    $DenyServiceLogonUsers -join "`n"
-
-                    $DenyBatchLogonSIDs = ((($seceditContent | Select-String "SeDenyBatchLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
-                    $DenyBatchLogonUsers = $DenyBatchLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object {
-                        $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                        $User = $SID.Translate([System.Security.Principal.NTAccount])
-                        $User.Value
-                    }
-                    $DenyBatchLogonUsers -join "`n"
-
-                    $null = Remove-Item "$env:TEMP\secedit.cfg"
-                }
+                )
+                $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).Close()
+                $results = $null
             }
             catch {
+                Write-Log -logtext "Could not check for security related registry keys on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
+            if ($results) {
+                $NTLM = switch ($results[0]) {
+                    5 { "Send NTLMv2 response only. Refuse LM & NTLM" }
+                    4 { "Send NTLMv2 response only. Refuse LM" }
+                    3 { "Send NTLMv2 response only" }
+                    2 { "Send NTLM response only" }
+                    1 { "Send LM & NTLM - use NTLMv2 session security if negotiated" }
+                    0 { "Send LM & NTLM responses" }
+                    Default {
+                        switch ((Get-ADCOmputer $dc -Properties operatingsystem).operatingsystem ) {
+                            { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012 R2*" } { "Send NTLMv2 response only. Refuse LM & NTLM" }
+                            Default { "Not configured, OS default assumed" }
+                        }
+                    }
+                }
+
+                $LMHash = switch ($results[1]) {
+                    1 { "Enabled" }
+                    0 { "Disabled" }
+                    Default { "Not configured" }
+                }
+
+                $RestrictAnnon = switch ($results[2]) {
+                    0 { "Disabled" }
+                    1 { "Enabled" }
+                    Default { "Not configured" }
+                }
+
+                $LDAPIntegrity = switch ($results[3]) {
+                    0 { "Does not requires signing" }
+                    1 { "Requires signing" }
+                    Default { "Not configured" }
+                }
+
+                $InactivityTimeout = switch ( $results[4] ) {
+                    { $_ -le 900 -AND $_ -ne 0 -AND $_ -ne $null } { "900 or fewer second(s), but not 0: $($_)" }
+                    { $_ -eq 0 } { "0 second" }
+                    { $_ -gt 900 } { "More than 900 seconds: $($_) seconds" }
+                    Default { 
+                        switch ((Get-ADCOmputer $dc -Properties operatingsystem).operatingsystem ) {
+                            { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012*" } { "OS default: 900 second" }
+                            Default { "Unlimited" }
+                        }
+                    }
+                }
+            }
+
+            $settings = ($NTLM, $LMHash, $RestrictAnnon, $LDAPIntegrity, $InactivityTimeout)   
+
+            if (Test-WSMan -ComputerName $DC -ErrorAction SilentlyContinue) {
+                try {
+                    $settings += invoke-command -ComputerName $DC -Credential $Credential -ScriptBlock { 
+                        $null = secedit.exe /export /areas USER_RIGHTS /cfg "$env:TEMP\secedit.cfg"
+                        $seceditContent = Get-Content "$env:TEMP\secedit.cfg" 
+            
+                        $LocalLogonSIDs = ((($seceditContent | Select-String "SeInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+                        $LocalLogonUsers = $LocalLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                            $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                            $User = $SID.Translate([System.Security.Principal.NTAccount])
+                            $User.Value
+                        }
+                        $LocalLogonUsers -join "`n"
+            
+                        $RemoteLogonSIDs = ((($seceditContent | Select-String "SeRemoteInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+                        $RemoteLogonUsers = $RemoteLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                            $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                            $User = $SID.Translate([System.Security.Principal.NTAccount])
+                            $User.Value
+                        }
+                        $RemoteLogonUsers -join "`n"            
+
+                        $DenyNetworkLogonSIDs = ((($seceditContent | Select-String "SeDenyNetworkLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+                        $DenyNetworkLogonUsers = $DenyNetworkLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                            $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                            $User = $SID.Translate([System.Security.Principal.NTAccount])
+                            $User.Value
+                        }
+                        $DenyNetworkLogonUsers -join "`n"            
+
+                        $DenyServiceLogonSIDs = ((($seceditContent | Select-String "SeDenyServiceLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+                        $DenyServiceLogonUsers = $DenyServiceLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                            $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                            $User = $SID.Translate([System.Security.Principal.NTAccount])
+                            $User.Value
+                        }
+                        $DenyServiceLogonUsers -join "`n"
+
+                        $DenyBatchLogonSIDs = ((($seceditContent | Select-String "SeDenyBatchLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+                        $DenyBatchLogonUsers = $DenyBatchLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object {
+                            $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                            $User = $SID.Translate([System.Security.Principal.NTAccount])
+                            $User.Value
+                        }
+                        $DenyBatchLogonUsers -join "`n"
+
+                        $null = Remove-Item "$env:TEMP\secedit.cfg"
+                    }
+                }
+                catch {
+                    $settings += ("Access denied", "Access denied", "Access denied", "Access denied", "Access denied")
+                    Write-Log -logtext "Could not check for secedit related security settings on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+                }
+            }
+            else {
                 $settings += ("Access denied", "Access denied", "Access denied", "Access denied", "Access denied")
-                Write-Log -logtext "Could not check for secedit related security settings on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+                Write-Log -logtext "Could not check for security related security settings on domain controller $dc as PS remoting not available : $($_.exception.message)" -logpath $logpath
+            }
+
+            $SecuritySettings += [PSCustomObject]@{
+                DomainName                                                                      = $DomainName
+                DCName                                                                          = $DC
+                "Network security: LAN Manager authentication level"                            = $settings[0]
+                "Network security: Do not store LAN Manager hash value on next password change" = $settings[1]
+                "Network access: Allow anonymous SID/Name translation"                          = $settings[2]
+                "Domain controller: LDAP server signing requirements"                           = $settings[3]
+                "Interactive logon: Machine inactivity limit"                                   = $settings[4]
+                "Allow logon locally on domain controllers"                                     = $settings[5]
+                "Allow logon through Terminal Services on domain controllers"                   = $settings[6]
+                "Deny access to this computer from the network"                                 = $settings[7]
+                "Deny log on as a service"                                                      = $settings[8]
+                "Deny log on as a batch job"                                                    = $settings[9]
             }
         }
         else {
-            $settings += ("Access denied", "Access denied", "Access denied", "Access denied", "Access denied")
-            Write-Log -logtext "Could not check for security related security settings on domain controller $dc as PS remoting not available : $($_.exception.message)" -logpath $logpath
-        }
-
-        $SecuritySettings += [PSCustomObject]@{
-            DomainName                                                                      = $DomainName
-            DCName                                                                          = $DC
-            "Network security: LAN Manager authentication level"                            = $settings[0]
-            "Network security: Do not store LAN Manager hash value on next password change" = $settings[1]
-            "Network access: Allow anonymous SID/Name translation"                          = $settings[2]
-            "Domain controller: LDAP server signing requirements"                           = $settings[3]
-            "Interactive logon: Machine inactivity limit"                                   = $settings[4]
-            "Allow logon locally on domain controllers"                                     = $settings[5]
-            "Allow logon through Terminal Services on domain controllers"                   = $settings[6]
-            "Deny access to this computer from the network"                                 = $settings[7]
-            "Deny log on as a service"                                                      = $settings[8]
-            "Deny log on as a batch job"                                                    = $settings[9]
+            $SecuritySettings += [PSCustomObject]@{
+                DomainName                                                                      = $DomainName
+                DCName                                                                          = $DC
+                "Network security: LAN Manager authentication level"                            = "DC is down"
+                "Network security: Do not store LAN Manager hash value on next password change" = "DC is down"
+                "Network access: Allow anonymous SID/Name translation"                          = "DC is down"
+                "Domain controller: LDAP server signing requirements"                           = "DC is down"
+                "Interactive logon: Machine inactivity limit"                                   = "DC is down"
+                "Allow logon locally on domain controllers"                                     = "DC is down"
+                "Allow logon through Terminal Services on domain controllers"                   = "DC is down"
+                "Deny access to this computer from the network"                                 = "DC is down"
+                "Deny log on as a service"                                                      = "DC is down"
+                "Deny log on as a batch job"                                                    = "DC is down"
+            }
         }
     }
 
@@ -2274,7 +2292,7 @@ Function Get-ADForestDetails {
     $GPOSummary = ($GPOSummaryDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
     $GPOInventory = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
     $SysvolNetlogonPermSummary = ($SysvolNetlogonPermissions | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Sysvol and Netlogon Permissions Summary</h2>") -replace "`n", "<br>"
-    $SecuritySummary = ($SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>") -replace "`n", "<br>" -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
+    $SecuritySummary = ($SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>") -replace "`n", "<br>" -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>' -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
     $DCSummary = ($DCInventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers Inventory</h2>") -replace "`n", "<br>"
     
     $message = "Forest $forest details collected now, preparing html report"
