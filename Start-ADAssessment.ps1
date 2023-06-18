@@ -1498,6 +1498,7 @@ Function Start-SecurityCheck {
                 "Deny log on as a service"                                                      = "DC is down"
                 "Deny log on as a batch job"                                                    = "DC is down"
             }
+            Write-Log -logtext "Could not check for security related security settings on domain controller $dc as DC is down : $($_.exception.message)" -logpath $logpath
         }
     }
 
