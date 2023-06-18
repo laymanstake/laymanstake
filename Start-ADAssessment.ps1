@@ -72,6 +72,7 @@ If ($logopath) {
 
 # Number of functions to get the details of the environment
 
+# This function creates log entries for the major steps in the script.
 function Write-Log {
     [CmdletBinding()]
     Param(
@@ -93,10 +94,20 @@ Function Get-ADTrustDetails {
     )
     
     if ($Credential) {
-        $trusts = Get-ADTrust -Filter * -Server $DomainName -Credential $Credential -Properties Created, Modified, ForestTransitive | Select-Object Name, Source, Target, Created, Modified, Direction, TrustType, Intraforest, ForestTransitive
+        try {
+            $trusts = Get-ADTrust -Filter * -Server $DomainName -Credential $Credential -Properties Created, Modified, ForestTransitive | Select-Object Name, Source, Target, Created, Modified, Direction, TrustType, Intraforest, ForestTransitive
+        }
+        catch {
+            Write-Log -logtext "Could get trust details with credntials: $($_.Exception.Message)" -logpath $logpath
+        }
     }
     else {
-        $trusts = Get-ADTrust -Filter * -Server $DomainName -Properties Created, Modified, ForestTransitive | Select-Object Name, Source, Target, Created, Modified, Direction, TrustType, Intraforest, ForestTransitive
+        try {
+            $trusts = Get-ADTrust -Filter * -Server $DomainName -Properties Created, Modified, ForestTransitive | Select-Object Name, Source, Target, Created, Modified, Direction, TrustType, Intraforest, ForestTransitive
+        }
+        catch {
+            Write-Log -logtext "Could get trust details without credentials: $($_.Exception.Message)" -logpath $logpath    
+        }
     }
 
     $TrustDetails = @()
@@ -106,10 +117,10 @@ Function Get-ADTrustDetails {
         if ($trust.TrustType -eq "External" -and $trust.Direction -eq "Bidirectional") {
             try {
                 if ($Credential) {
-                    $null = Get-ADDomain -Identity $trust.Target -Server $trust.Target -Credential $Credential -ErrorAction Stop
+                    $null = Get-ADDomain -Identity $trust.Target -Server $trust.Target -Credential $Credential -ErrorAction SilentlyContinue
                 }
                 else {
-                    $null = Get-ADDomain -Identity $trust.Target -Server $trust.Target -ErrorAction Stop
+                    $null = Get-ADDomain -Identity $trust.Target -Server $trust.Target -ErrorAction SilentlyContinue
                 }
             }
             catch {
@@ -155,7 +166,7 @@ Function Get-ADFSDetails {
             $service = ((Get-Service -ComputerName $computer -Name adfssrv -ErrorAction SilentlyContinue).Name , (Get-Service -ComputerName $computer -Name adsync -ErrorAction SilentlyContinue).Name )
         }
         catch {
-            
+            Write-Log -logtext "Could get Service details from $computer : $($_.Exception.Message)" -logpath $logpath
         }
         if ($service[0] -eq "adfssrv") {
             $adfsServers += $computer
@@ -172,7 +183,8 @@ Function Get-ADFSDetails {
             }
         }
         catch {
-            Write-Output "PS remoting NOT supported on $server"
+            Write-Log -logtext "ADFS Server - PS remoting NOT supported on $server : $($_.Exception.Message)" -logpath $logpath
+            
         }
         
         if (($ADFSproperties[0]).Role -eq "PrimaryComputer") {
@@ -194,14 +206,20 @@ Function Get-ADFSDetails {
     }
 
     foreach ($server in $aadconnectServers) {        
-        $InstallPath = ((([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $server)).OpenSubKey('SOFTWARE\Microsoft\Azure AD Connect')).GetValue('Wizardpath')) -replace "\\", "\\"
-        $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $server)).Close();
+        try {
+            $InstallPath = ((([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $server)).OpenSubKey('SOFTWARE\Microsoft\Azure AD Connect')).GetValue('Wizardpath')) -replace "\\", "\\"
+            $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $server)).Close();
+        }
+        catch {
+            Write-Log -logtext "ADSync Server - Could not open remote regitry on $server : $($_.Exception.Message)" -logpath $logpath
+        }
         
         if (Test-WSMan -ComputerName $server -ErrorAction SilentlyContinue) {
             $ADSyncVersion = (Get-CimInstance -ClassName Cim_DataFile -ComputerName $server -Filter "Name='$InstallPath'").Version
         }
         else {
             $ADSyncVersion = "Access denied"
+            Write-Log -logtext "ADSync Server - PS remoting NOT supported on $server : $($_.Exception.Message)" -logpath $logpath
         }
 
         $Info = [PSCustomObject]@{
@@ -239,7 +257,7 @@ Function Get-PKIDetails {
             }
         }
         catch {
-            Write-Out "WinRM access denied, can't obtain SHA information"
+            Write-Log -logtext "PKI Server - WinRM access denied, can't obtain SHA information from $server : $($_.Exception.Message)" -logpath $logpath            
         }
     }    
     
@@ -257,7 +275,12 @@ Function Get-ADDNSDetails {
     $DNSServerDetails = @()
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator    
     
-    $DNSServers = (Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { ((Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { (Get-WmiObject  -Class Win32_serverfeature  -ComputerName $_.Name | Where-Object { $_.Name -like "DNS Server" }) } | Select-Object Name, IPv4Address) } | Select-Object Name, IPv4Address
+    try {
+        $DNSServers = (Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { ((Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { (Get-WmiObject  -Class Win32_serverfeature  -ComputerName $_.Name -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "DNS Server" }) } | Select-Object Name, IPv4Address) } | Select-Object Name, IPv4Address
+    }
+    catch {
+        Write-Log -logtext "Failed to get DNS servers list as one or more DC denied service details access : $($_.Exception.Message)" -logpath $logpath
+    }
 
     ForEach ($DNSServer in $DNSServers) {
         $Scavenging = Get-DnsServerScavenging -ComputerName $DNSServer.Name
@@ -321,8 +344,13 @@ Function Get-ADGroupMemberRecursive {
     )
     
     $Domain = (Get-ADDomain -Identity $DomainName -Credential $Credential)
-    $PDC = $Domain.PDCEmulator    
-    $members = (Get-ADGroup -Identity $GroupName -Server $PDC -Credential $Credential -Properties Members).members
+    $PDC = $Domain.PDCEmulator
+    try {
+        $members = (Get-ADGroup -Identity $GroupName -Server $PDC -Credential $Credential -Properties Members).members
+    }
+    catch {
+        Write-Log -logtext "Failed to get member details for the group $GroupName : $($_.Exception.Message)" -logpath $logpath 
+    }
 
     $membersRecursive = @()
     foreach ($member in $members) {
@@ -395,6 +423,7 @@ Function Get-ADDHCPDetails {
             }
             catch {
                 $OS = "Access denied"
+                Write-Log -logtext "Could not get operating system details for DHCP Server $dhcpserver : $($_.Exception.Message)" -logpath $logpath
             }
 
             $DHCPDetails += [PSCustomObject]@{
@@ -407,7 +436,9 @@ Function Get-ADDHCPDetails {
                 NoLeaseScopeCount  = $NoLeaseScopes.count                
             }
         }
-        catch {}
+        catch {
+            Write-Log -logtext "Failed to get details from DHCP Server $dhcpserver : $($_.Exception.Message)" -logpath $logpath
+        }
     }
     
     return $DHCPDetails
@@ -426,118 +457,124 @@ Function Get-DHCPInventory {
     $Reservations = @()
 
     foreach ($dhcp in $DHCPs) {
-        $scopes = $null
-        $scopes = (Get-DhcpServerv4Scope -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue)
-        $Res = $scopes | ForEach-Object { Get-DHCPServerv4Lease -ComputerName $dhcp.DNSName -ScopeID $_.ScopeID } | Select-Object ScopeId, IPAddress, HostName, Description, ClientID, AddressState
+        try {
+            $scopes = $null
+            $scopes = (Get-DhcpServerv4Scope -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue)
+            $Res = $scopes | ForEach-Object { Get-DHCPServerv4Lease -ComputerName $dhcp.DNSName -ScopeID $_.ScopeID } | Select-Object ScopeId, IPAddress, HostName, Description, ClientID, AddressState
     
-        ForEach ($Temp in $Res ) {
-            $Reservation = [PSCustomObject]@{
-                ServerName   = $dhcp.DNSName
-                ScopeID      = $Temp.ScopeId
-                IPAddress    = $Temp.IPAddress
-                HostName     = $Temp.HostName
-                Description  = $Temp.Description
-                ClientID     = $Temp.ClientID
-                AddressState = $Temp.AddressState
-            } | select-object ServerName, ScopeID, IPAddress, HostName, Description, ClientID, AddressState
-            $Reservations += $Reservation
-        }
-
-        If ($null -ne $scopes) {
-            $GlobalDNSList = $null
-            #getting global DNS settings, in case scopes are configured to inherit these settings
-            $GlobalDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
-            Try { $Option015 = [String](Get-DhcpServerv4OptionValue -OptionId 015 -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
-            Catch { $Option015 = "" }
-
-            $scopes | ForEach-Object {
-                $row = "" | Select-Object Hostname, ScopeID, SubnetMask, Name, State, StartRange, EndRange, LeaseDuration, Description, DNS1, DNS2, DNS3, DNS4, DNS5, GDNS1, GDNS2, GDNS3, GDNS4, GDNS5, Router, DoGroupId, Option160, option015, Scopeoption015, Exclusions
-                Try { $DoGroupId = [String](Get-DhcpServerv4OptionValue -OptionId 234 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
-                Catch { $DoGroupId = "" }
-
-                Try { $Option160 = [String](Get-DhcpServerv4OptionValue -OptionId 160 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
-                Catch { $Option160 = "" }
-
-                Try { $ScopeOption015 = [String](Get-DhcpServerv4OptionValue -OptionId 015 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
-                Catch { $ScopeOption015 = "" }
-
-                $router = @()
-                Try { $router = (Get-DhcpServerv4OptionValue -ComputerName $dhcp.DNSName -OptionId 3 -ScopeID $_.ScopeId -ErrorAction:SilentlyContinue).Value }
-                Catch { $router = ("") }
-
-                $ScopeExclusions = @()
-                Try { $ScopeExclusions = Get-DhcpServerv4ExclusionRange -ComputerName $dhcp.DNSName -ScopeID $_.ScopeId -ErrorAction:SilentlyContinue }
-                Catch { $ScopeExclusions = ("") }
-
-                $Exclusions = ""
-                $z = 0
-                If ($ScopeExclusions) {
-                    ForEach ($ScopeExclusion in $ScopeExclusions) {
-                        $z++
-                        $ExclusionValue = [String]$ScopeExclusion.StartRange + "-" + [String]$ScopeExclusion.EndRange
-                        if ($z -ge 2) {	$Exclusions = $Exclusions + "," + $ExclusionValue } else { $Exclusions = $ExclusionValue }
-                    }
-                }
-
-                if ($router) {
-                    $row.Router = $router[0]
-                }
-                else {
-                    $row.Router = ""
-                }                
-                $row.Hostname = $dhcp.DNSName
-                $row.ScopeID = $_.ScopeID
-                $row.SubnetMask = $_.SubnetMask
-                $row.Name = $_.Name
-                $row.State = $_.State
-                $row.StartRange = $_.StartRange
-                $row.EndRange = $_.EndRange
-                $row.LeaseDuration = $_.LeaseDuration
-                $row.Description = $_.Description
-                $row.DoGroupId = $DoGroupId
-                $row.Option160 = $Option160
-                $row.Option015 = $Option015
-                $row.ScopeOption015 = $ScopeOption015
-                $row.Exclusions = $Exclusions
-                $ScopeDNSList = $null
-                $ScopeDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
-
-                If (($null -eq $ScopeDNSList) -and ($null -ne $GlobalDNSList)) {
-                    $row.GDNS1 = $GlobalDNSList[0]
-                    $row.GDNS2 = $GlobalDNSList[1]
-                    $row.GDNS3 = $GlobalDNSList[2]
-                    $row.GDNS4 = $GlobalDNSList[3]
-                    $row.GDNS5 = $GlobalDNSList[4]
-                }
-                ElseIf (($null -ne $ScopeDNSList) -and ($null -ne $GlobalDNSList)) {
-                    $row.GDNS1 = $GlobalDNSList[0]
-                    $row.GDNS2 = $GlobalDNSList[1]
-                    $row.GDNS3 = $GlobalDNSList[2]
-                    $row.GDNS4 = $GlobalDNSList[3]
-                    $row.GDNS5 = $GlobalDNSList[4]
-                    $row.DNS1 = $ScopeDNSList[0]
-                    $row.DNS2 = $ScopeDNSList[1]
-                    $row.DNS3 = $ScopeDNSList[2]
-                    $row.DNS4 = $ScopeDNSList[3]
-                    $row.DNS5 = $ScopeDNSList[4]
-                }
-                Else {
-                    $row.DNS1 = $ScopeDNSList[0]
-                    $row.DNS2 = $ScopeDNSList[1]
-                    $row.DNS3 = $ScopeDNSList[2]
-                    $row.DNS4 = $ScopeDNSList[3]
-                    $row.DNS5 = $ScopeDNSList[4]
-                }
-                $row
-                $Report += $row
+            ForEach ($Temp in $Res ) {
+                $Reservation = [PSCustomObject]@{
+                    ServerName   = $dhcp.DNSName
+                    ScopeID      = $Temp.ScopeId
+                    IPAddress    = $Temp.IPAddress
+                    HostName     = $Temp.HostName
+                    Description  = $Temp.Description
+                    ClientID     = $Temp.ClientID
+                    AddressState = $Temp.AddressState
+                } | select-object ServerName, ScopeID, IPAddress, HostName, Description, ClientID, AddressState
+                $Reservations += $Reservation
             }
+
+            If ($null -ne $scopes) {
+                $GlobalDNSList = $null
+                #getting global DNS settings, in case scopes are configured to inherit these settings
+                $GlobalDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
+                Try { $Option015 = [String](Get-DhcpServerv4OptionValue -OptionId 015 -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
+                Catch { $Option015 = "" }
+
+                $scopes | ForEach-Object {
+                    $row = "" | Select-Object Hostname, ScopeID, SubnetMask, Name, State, StartRange, EndRange, LeaseDuration, Description, DNS1, DNS2, DNS3, DNS4, DNS5, GDNS1, GDNS2, GDNS3, GDNS4, GDNS5, Router, DoGroupId, Option160, option015, Scopeoption015, Exclusions
+                    Try { $DoGroupId = [String](Get-DhcpServerv4OptionValue -OptionId 234 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
+                    Catch { $DoGroupId = "" }
+
+                    Try { $Option160 = [String](Get-DhcpServerv4OptionValue -OptionId 160 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
+                    Catch { $Option160 = "" }
+
+                    Try { $ScopeOption015 = [String](Get-DhcpServerv4OptionValue -OptionId 015 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
+                    Catch { $ScopeOption015 = "" }
+
+                    $router = @()
+                    Try { $router = (Get-DhcpServerv4OptionValue -ComputerName $dhcp.DNSName -OptionId 3 -ScopeID $_.ScopeId -ErrorAction:SilentlyContinue).Value }
+                    Catch { $router = ("") }
+
+                    $ScopeExclusions = @()
+                    Try { $ScopeExclusions = Get-DhcpServerv4ExclusionRange -ComputerName $dhcp.DNSName -ScopeID $_.ScopeId -ErrorAction:SilentlyContinue }
+                    Catch { $ScopeExclusions = ("") }
+
+                    $Exclusions = ""
+                    $z = 0
+                    If ($ScopeExclusions) {
+                        ForEach ($ScopeExclusion in $ScopeExclusions) {
+                            $z++
+                            $ExclusionValue = [String]$ScopeExclusion.StartRange + "-" + [String]$ScopeExclusion.EndRange
+                            if ($z -ge 2) {	$Exclusions = $Exclusions + "," + $ExclusionValue } else { $Exclusions = $ExclusionValue }
+                        }
+                    }
+
+                    if ($router) {
+                        $row.Router = $router[0]
+                    }
+                    else {
+                        $row.Router = ""
+                    }                
+                    $row.Hostname = $dhcp.DNSName
+                    $row.ScopeID = $_.ScopeID
+                    $row.SubnetMask = $_.SubnetMask
+                    $row.Name = $_.Name
+                    $row.State = $_.State
+                    $row.StartRange = $_.StartRange
+                    $row.EndRange = $_.EndRange
+                    $row.LeaseDuration = $_.LeaseDuration
+                    $row.Description = $_.Description
+                    $row.DoGroupId = $DoGroupId
+                    $row.Option160 = $Option160
+                    $row.Option015 = $Option015
+                    $row.ScopeOption015 = $ScopeOption015
+                    $row.Exclusions = $Exclusions
+                    $ScopeDNSList = $null
+                    $ScopeDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
+
+                    If (($null -eq $ScopeDNSList) -and ($null -ne $GlobalDNSList)) {
+                        $row.GDNS1 = $GlobalDNSList[0]
+                        $row.GDNS2 = $GlobalDNSList[1]
+                        $row.GDNS3 = $GlobalDNSList[2]
+                        $row.GDNS4 = $GlobalDNSList[3]
+                        $row.GDNS5 = $GlobalDNSList[4]
+                    }
+                    ElseIf (($null -ne $ScopeDNSList) -and ($null -ne $GlobalDNSList)) {
+                        $row.GDNS1 = $GlobalDNSList[0]
+                        $row.GDNS2 = $GlobalDNSList[1]
+                        $row.GDNS3 = $GlobalDNSList[2]
+                        $row.GDNS4 = $GlobalDNSList[3]
+                        $row.GDNS5 = $GlobalDNSList[4]
+                        $row.DNS1 = $ScopeDNSList[0]
+                        $row.DNS2 = $ScopeDNSList[1]
+                        $row.DNS3 = $ScopeDNSList[2]
+                        $row.DNS4 = $ScopeDNSList[3]
+                        $row.DNS5 = $ScopeDNSList[4]
+                    }
+                    Else {
+                        $row.DNS1 = $ScopeDNSList[0]
+                        $row.DNS2 = $ScopeDNSList[1]
+                        $row.DNS3 = $ScopeDNSList[2]
+                        $row.DNS4 = $ScopeDNSList[3]
+                        $row.DNS5 = $ScopeDNSList[4]
+                    }
+                    $row
+                    $Report += $row
+                }
+            }
+            Else {            
+                $row = "" | Select-Object Hostname, ScopeID, SubnetMask, Name, State, StartRange, EndRange, LeaseDuration, Description, DNS1, DNS2, DNS3, DNS4, DNS5, GDNS1, GDNS2, GDNS3, GDNS4, GDNS5, Router, DoGroupId, Option160, option015, Scopeoption015, Exclusions
+                $row.Hostname = $dhcp.DNSName
+                $Report += $row
+            }        
         }
-        Else {            
-            $row = "" | Select-Object Hostname, ScopeID, SubnetMask, Name, State, StartRange, EndRange, LeaseDuration, Description, DNS1, DNS2, DNS3, DNS4, DNS5, GDNS1, GDNS2, GDNS3, GDNS4, GDNS5, Router, DoGroupId, Option160, option015, Scopeoption015, Exclusions
-            $row.Hostname = $dhcp.DNSName
-            $Report += $row
-        }        
-    }
+        catch {
+            Write-Log -logtext "Could not get scopes etc details for DHCP Server $dhcpserver : $($_.Exception.Message)" -logpath $logpath
+        }
+    }    
+
     
     $Details = [pscustomobject] @{
         Inventory   = $Report
@@ -652,8 +689,13 @@ Function Get-GPOInventory {
         $Permissions = Get-GPPermission -Name $Report.GPO.Name -All -DomainName $DomainName | Select-Object @{l = "Permission"; e = { "$($_.Trustee.Name), $($_.Trustee.SIDType), $($_.permission), Denied: $($_.Denied)" } }    
         $Links = $Report.GPO.LinksTo
 
-        $wmifilterid = ($_.WmiFilter.Path -split '"')[1]    
-        $wmiquery = ((Get-ADObject -Filter { objectClass -eq 'msWMI-Som' } -Server $PDC -Properties 'msWMI-Parm2' | where-object { $_.name -eq $wmifilterid })."msWMI-Parm2" -split "root\\CIMv2;")[1]    
+        try {
+            $wmifilterid = ($_.WmiFilter.Path -split '"')[1]
+            $wmiquery = ((Get-ADObject -Filter { objectClass -eq 'msWMI-Som' } -Server $PDC -Properties 'msWMI-Parm2' | where-object { $_.name -eq $wmifilterid })."msWMI-Parm2" -split "root\\CIMv2;")[1]    
+        }
+        catch {
+            Write-Log -logtext "Erorr in getting WmiFilter $_.WmiFilter.Name query : $($_.Exception.Message)" -logpath $logpath
+        }
         
         $GPOSummary += [pscustomobject]@{
             Domain           = $DomainName
@@ -751,53 +793,59 @@ function Get-SMBv1Status {
 
     $result = @()
     ForEach ($computer in $computername) {
-        $smbv1ClientEnabled = $null
-        $smbv1ServerEnabled = $null
+        try {
+            $smbv1ClientEnabled = $null
+            $smbv1ServerEnabled = $null
     
-        switch ((Get-WmiObject -Class Win32_OperatingSystem -ComputerName $Computer).Version) {
-            { $_ -like "5*" } { $OSversion = "Windows Server 2003" }
-            { $_ -like "6.0*" } { $OSversion = "Windows Server 2008" }
-            { $_ -like "6.1*" } { $OSversion = "Windows Server 2008 R2" }
-            { $_ -like "6.2*" } { $OSversion = "Windows Server 2012" }
-            { $_ -like "6.3*" } { $OSversion = "Windows Server 2012 R2" }
-            { $_ -like "10.0.14*" } { $OSversion = "Windows Server 2016" }
-            { $_ -like "10.0.17*" } { $OSversion = "Windows Server 2019" }
-            { $_ -like "10.0.19*" -OR $_ -like "10.0.2*" } { $OSversion = "Windows Server 2022" }
-            default { $OSversion = "Windows Server 2003" }
-        }
+            switch ((Get-WmiObject -Class Win32_OperatingSystem -ComputerName $Computer).Version) {
+                { $_ -like "5*" } { $OSversion = "Windows Server 2003" }
+                { $_ -like "6.0*" } { $OSversion = "Windows Server 2008" }
+                { $_ -like "6.1*" } { $OSversion = "Windows Server 2008 R2" }
+                { $_ -like "6.2*" } { $OSversion = "Windows Server 2012" }
+                { $_ -like "6.3*" } { $OSversion = "Windows Server 2012 R2" }
+                { $_ -like "10.0.14*" } { $OSversion = "Windows Server 2016" }
+                { $_ -like "10.0.17*" } { $OSversion = "Windows Server 2019" }
+                { $_ -like "10.0.19*" -OR $_ -like "10.0.2*" } { $OSversion = "Windows Server 2022" }
+                default { $OSversion = "Windows Server 2003" }
+            }
 
-        $smbv1ClientEnabled = (Get-Service -Name lanmanworkstation -ComputerName $Computer).DependentServices.name -contains "mrxsmb10"
+            $smbv1ClientEnabled = (Get-Service -Name lanmanworkstation -ComputerName $Computer).DependentServices.name -contains "mrxsmb10"
 
     
-        If ($OSversion -in ("Windows Server 2003", "Windows Server 2008")) {    
-            $ErrorActionPreference = "SilentlyContinue"
-            try {
-                $smbv1ServerEnabled = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $computer)).OpenSubKey('SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters').GetValue('EnableSMB') -eq 1
+            If ($OSversion -in ("Windows Server 2003", "Windows Server 2008")) {    
+                $ErrorActionPreference = "SilentlyContinue"
+                try {
+                    $smbv1ServerEnabled = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $computer)).OpenSubKey('SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters').GetValue('EnableSMB') -eq 1
+                }
+                Catch {
+                    $smbv1ServerEnabled = "Unknown"
+                }
+                $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $computer)).Close();
             }
-            Catch {
-                $smbv1ServerEnabled = "Unknown"
+            else {
+                try {
+                    $smbv1ServerEnabled = Invoke-Command -ComputerName $Computer -ScriptBlock { (Get-SmbServerConfiguration).EnableSMB1Protocol } -Credential $credential
+                }
+                catch {
+                    $smbv1ServerEnabled = "Unknown"
+                }
+                if ($null -eq $smbv1ServerEnabled) {
+                    $smbv1ServerEnabled = "Unknown"
+                }
             }
-            $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $computer)).Close();
-        }
-        else {
-            try {
-                $smbv1ServerEnabled = Invoke-Command -ComputerName $Computer -ScriptBlock { (Get-SmbServerConfiguration).EnableSMB1Protocol } -Credential $credential
-            }
-            catch {
-                $smbv1ServerEnabled = "Unknown"
-            }
-            if ($null -eq $smbv1ServerEnabled) {
-                $smbv1ServerEnabled = "Unknown"
-            }
-        }
 
-        $result += [PSCustomObject]@{
-            ComputerName       = $Computer
-            OperatingSystem    = $OSversion
-            SMBv1ClientEnabled = $smbv1ClientEnabled
-            SMBv1ServerEnabled = $smbv1ServerEnabled
-        }    
+            $result += [PSCustomObject]@{
+                ComputerName       = $Computer
+                OperatingSystem    = $OSversion
+                SMBv1ClientEnabled = $smbv1ClientEnabled
+                SMBv1ServerEnabled = $smbv1ServerEnabled
+            } 
+        }
+        catch {
+            Write-Log -logtext "Could not get SMBv1 status for $computer : $($_.Exception.Message)" -logpath $logpath
+        }  
     }
+
     Return $result
 }
 
@@ -843,6 +891,7 @@ Function Get-ADDomainDetails {
     }
     catch {
         $FSR2DFSRStatus = "WinRM access denied on $PDC"
+        Write-Log -logtext "FSR2DFSR status - WinRM access denied on $PDC : $($_.Exception.Message)" -logpath $logpath
     }
 
     foreach ($dc in $dcs) {
@@ -850,44 +899,76 @@ Function Get-ADDomainDetails {
             try {
                 $NLParamters = ((([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\')).GetValueNames() | ForEach-Object { [PSCustomObject]@{ Parameter = $_; Value = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\').GetValue($_) } } | ForEach-Object { "$($_.parameter), $($_.value)" }) -join "`n"
             }
-            catch { $NLParamters = "Reg not found" }
+            catch { 
+                $NLParamters = "Reg not found" 
+                Write-Log -logtext "Netlogon parameters not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
             try {
                 $SSL2Client = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
             }
-            catch { $SSL2Client = "Reg not found" }
+            catch { 
+                $SSL2Client = "Reg not found" 
+                Write-Log -logtext "SSL 2.0 Client reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
             try {
                 $SSL2Server = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Server').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
             }
-            catch { $SSL2Server = "Reg not found" }
+            catch { 
+                $SSL2Server = "Reg not found" 
+                Write-Log -logtext "SSL 2.0 Server reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
             try {
                 $TLS10Client = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
             }
-            catch { $TLS10Client = "Reg not found" }
+            catch { 
+                $TLS10Client = "Reg not found" 
+                Write-Log -logtext "TLS 1.0 Client reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
             try {
                 $TLS10Server = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
             }
-            catch { $TLS10Server = "Reg not found" }
+            catch { 
+                $TLS10Server = "Reg not found" 
+                Write-Log -logtext "TLS 1.0 Server reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
             try {
                 $TLS11Client = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
             }
-            catch { $TLS11Client = "Reg not found" }
+            catch { 
+                $TLS11Client = "Reg not found" 
+                Write-Log -logtext "TLS 1.1 Client reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
             try {
                 $TLS11Client = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
             }
-            catch { $TLS11Client = "Reg not found" }
+            catch { 
+                $TLS11Client = "Reg not found"
+                Write-Log -logtext "TLS 1.1 Client reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
             try {
                 $NTPServer = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters').GetValue('NTPServer')
             }
-            catch { $NTPServer = "Reg not found" }
+            catch { 
+                $NTPServer = "Reg not found" 
+                Write-Log -logtext "NTP Server reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
             try {
                 $NTPType = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters').GetValue('Type')
             }
-            catch { $NTPType = "Reg not found" }
+            catch { 
+                $NTPType = "Reg not found" 
+                Write-Log -logtext "NTP Server Type reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
 
             $results = ($NLParamters, $SSL2Client, $SSL2Server, $TLS10Client, $TLS10Server, $TLS11Client, $TLS11Client, $NTPServer, $NTPType)
             $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).Close();
 
-            $InstalledFeatures = (Get-WindowsFeature -ComputerName $dc -Credential $Credential | Where-Object Installed).Name
+            try {
+                $InstalledFeatures = (Get-WindowsFeature -ComputerName $dc -Credential $Credential | Where-Object Installed).Name
+            }
+            catch {
+                Write-Log -logtext "Failed to get installed features on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
 
             if ($InstalledFeatures) {
                 $UndesiredFeatures = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject $InstalledFeatures  -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
@@ -1036,7 +1117,12 @@ Function Get-ADGroupDetails {
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
 
     $AllGroups = Get-ADGroup -Filter { GroupCategory -eq "Security" } -Properties GroupScope -Server $PDC -Credential $Credential
-    $EmptyGroups = $AllGroups |  Where-Object { -NOT( Get-ADGroupMember $_  -Server $PDC  -Credential $Credential) }
+    try {
+        $EmptyGroups = $AllGroups |  Where-Object { -NOT( Get-ADGroupMember $_  -Server $PDC  -Credential $Credential) }
+    }
+    catch {
+        Write-Log -logtext "Could not check all groups for empty groups: $($_.Exception.Message)" -logpath $logpath
+    }
 
     $GroupDetails += [PSCustomObject]@{
         DomainName      = $DomainName
@@ -1144,8 +1230,9 @@ Function Get-OrphanedFSP {
         
 
     foreach ($FSP in $AllFSPs) {
-        Try
-        { $null = (New-Object System.Security.Principal.SecurityIdentifier($FSP.objectSid)).Translate([System.Security.Principal.NTAccount]) }
+        Try { 
+            $null = (New-Object System.Security.Principal.SecurityIdentifier($FSP.objectSid)).Translate([System.Security.Principal.NTAccount]) 
+        }
         Catch {         
             If (-NOT($FSp.DistinguishedName -in $KnownFSPs)) {
                 $OrphanedFSPs += $FSp.DistinguishedName
@@ -1230,14 +1317,19 @@ Function Start-SecurityCheck {
     $DCs = (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).hostname
 
     ForEach ($DC in $DCs) {
-        $results = (
+        try {
+            $results = (
             ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('LmCompatibilityLevel'),
             ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('NoLMHash'),
             ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('RestrictAnonymous'),
             ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Services\NTDS\Parameters').GetValue('LDAPServerIntegrity'),
             ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').GetValue('InactivityTimeoutSecs')
-        )
-        $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).Close()
+            )
+            $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).Close()
+        }
+        catch {
+            Write-Log -logtext "Could not check for security related registry keys on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+        }
         
         $NTLM = switch ($results[0]) {
             5 { "Send NTLMv2 response only. Refuse LM & NTLM" }
@@ -1247,7 +1339,7 @@ Function Start-SecurityCheck {
             1 { "Send LM & NTLM - use NTLMv2 session security if negotiated" }
             0 { "Send LM & NTLM responses" }
             Default {
-                switch ((Get-WmiObject -Class Win32_OperatingSystem -ComputerName $DC).Caption ) {
+                switch ((Get-ADCOmputer $dc -Properties operatingsystem).operatingsystem ) {
                     { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012 R2*" } { "Send NTLMv2 response only. Refuse LM & NTLM" }
                     Default { "Not configured, OS default assumed" }
                 }
@@ -1277,7 +1369,7 @@ Function Start-SecurityCheck {
             { $_ -eq 0 } { "0 second" }
             { $_ -gt 900 } { "More than 900 seconds: $($_) seconds" }
             Default { 
-                switch ((Get-WmiObject -Class Win32_OperatingSystem -ComputerName $DC).Caption ) {
+                switch ((Get-ADCOmputer $dc -Properties operatingsystem).operatingsystem ) {
                     { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012*" } { "OS default: 900 second" }
                     Default { "Unlimited" }
                 }
@@ -1337,10 +1429,12 @@ Function Start-SecurityCheck {
             }
             catch {
                 $settings += ("Access denied", "Access denied", "Access denied", "Access denied", "Access denied")
+                Write-Log -logtext "Could not check for secedit related security settings on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
             }
         }
         else {
             $settings += ("Access denied", "Access denied", "Access denied", "Access denied", "Access denied")
+            Write-Log -logtext "Could not check for security related security settings on domain controller $dc as PS remoting not available : $($_.exception.message)" -logpath $logpath
         }
 
         $SecuritySettings += [PSCustomObject]@{
@@ -1374,7 +1468,12 @@ function Get-UnusedNetlogonScripts {
     $referencedScripts = @()
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
     $netlogonPath = "\\$DomainName\netlogon"
-    $scriptFiles = Get-ChildItem -Path $netlogonPath -File -Recurse | Select-Object -ExpandProperty FullName
+    try {
+        $scriptFiles = Get-ChildItem -Path $netlogonPath -File -Recurse | Select-Object -ExpandProperty FullName
+    }
+    catch {
+        Write-Log -logtext "Could not access Netlogon share to read script files : $($_.Exception.Message)" -logpath $logpath
+    }
     $scriptFiles = $scriptfiles -replace $DomainName, $DomainName.Split(".")[0] | Where-Object { $_ -ne $null } | Sort-Object -Unique
     $referencedScripts = (Get-ADuser -filter * -Server $PDC -Properties ScriptPath | Where-Object { $_.ScriptPath } | Sort-Object ScriptPath -Unique).ScriptPath
     
@@ -1435,8 +1534,19 @@ function Get-SysvolNetlogonPermissions {
     $NETLOGONPermsummary = @()
     $SysvolNetlogonPermissions = @()
     
-    $SYSVOLACLs = Get-ACL "\\$DomainName\SYSVOL"
-    $NETLOGONACLs = Get-ACL "\\$DomainName\NETLOGON"
+    try {
+        $SYSVOLACLs = Get-ACL "\\$DomainName\SYSVOL"
+    }
+    catch {
+        Write-Log -logtext "Could not get SYSVOL share permissions : $($_.Exception.Message)" -logpath $logpath
+    }
+    
+    try {
+        $NETLOGONACLs = Get-ACL "\\$DomainName\NETLOGON"
+    }
+    catch {
+        Write-Log -logtext "Could not get NETLOGON share permissions : $($_.Exception.Message)" -logpath $logpath
+    }
 
     ForEach ($SYSVOLACL in $SYSVOLACLs.Access) {
         Switch ([long]$SYSVOLACL.FileSystemRights) {
@@ -1545,8 +1655,8 @@ Function Get-SystemInfo {
                 DriveFreeSpace  = $DiskFreeSizes
             }
         }
-        catch {
-            Write-Output "Issue in data collection from $($s)"
+        catch {            
+            Write-Log -logtext "Could not get inventory info from server $($s.Name) : $($_.Exception.Message)" -logpath $logpath
             Continue
         }
     }
@@ -1726,8 +1836,8 @@ function Test-ADHealth {
 
                 $tryok = "ok"
             }
-            catch {
-                Write-Output $_.Exception.Message
+            catch {                
+                Write-Log -logtext "Could not check $dcserver for health : $($_.exception.message)" -logpath $logpath
             }
 
             if ($tryok -eq "ok") {
@@ -1780,30 +1890,35 @@ function Get-ADReplicationHealth {
     $domainControllers = Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential    
 
     foreach ($dc in $domainControllers) {
-        $dcName = $dc.Name        
-        $replicationInfo = Get-ADReplicationPartnerMetadata -Target $dcName -Credential $Credential
+        try {
+            $dcName = $dc.Name        
+            $replicationInfo = Get-ADReplicationPartnerMetadata -Target $dcName -Credential $Credential
         
-        $replicationFailures = Get-ADReplicationFailure -Target $dcName -Credential $Credential
+            $replicationFailures = Get-ADReplicationFailure -Target $dcName -Credential $Credential
 
-        foreach ($partner in $replicationInfo) {
-            $partnerData = Get-ADDomainController -Identity $partner.Partner -Server $DomainName -Credential $Credential
+            foreach ($partner in $replicationInfo) {
+                $partnerData = Get-ADDomainController -Identity $partner.Partner -Server $DomainName -Credential $Credential
 
-            $replicationStatus = $partner.LastReplicationResult
-            $lastReplicationTime = $partner.LastReplicationSuccess
-            $LastReplicationAttempt = $partner.LastReplicationAttempt
-            $failure = $replicationFailures | Where-Object { $_.Partner -eq $partner.Partner }
+                $replicationStatus = $partner.LastReplicationResult
+                $lastReplicationTime = $partner.LastReplicationSuccess
+                $LastReplicationAttempt = $partner.LastReplicationAttempt
+                $failure = $replicationFailures | Where-Object { $_.Partner -eq $partner.Partner }
 
-            $replicationData += [PSCustomObject] @{
-                DomainController           = $dcName
-                Partner                    = $partnerData.Name
-                ReplicationStatus          = $replicationStatus
-                LastReplicationSuccessTime = $lastReplicationTime
-                LastReplicationTimeAttempt = $LastReplicationAttempt                
-                FirstFailureTime           = $failure.FirstFailureTime -join "`n"
-                FailureCount               = $failure.FailureCount -join "`n"
-                FailureType                = $failure.FailureType -join "`n"
-                FailureError               = $failure.LastError -join "`n"
+                $replicationData += [PSCustomObject] @{
+                    DomainController           = $dcName
+                    Partner                    = $partnerData.Name
+                    ReplicationStatus          = $replicationStatus
+                    LastReplicationSuccessTime = $lastReplicationTime
+                    LastReplicationTimeAttempt = $LastReplicationAttempt                
+                    FirstFailureTime           = $failure.FirstFailureTime -join "`n"
+                    FailureCount               = $failure.FailureCount -join "`n"
+                    FailureType                = $failure.FailureType -join "`n"
+                    FailureError               = $failure.LastError -join "`n"
+                }
             }
+        }
+        catch {
+            Write-Log -logtext "Could not check $($dc.Name) for replication health : $($_.exception.message)" -logpath $logpath
         }
     }
 
@@ -1837,9 +1952,7 @@ Function Get-ADForestDetails {
     $forestDomainSID = (Get-ADDomain $forest -Server $forest -Credential $Credential).domainSID.Value    
 
     $SchemaPartition = $ForestInfo.PartitionsContainer.Replace("CN=Partitions", "CN=Schema")
-    $SchemaVersion = Get-ADObject -Server $forest -Identity $SchemaPartition -Credential $Credential -Properties * | Select-Object objectVersion
-
-    <#     $forestDN = $ForestInfo.PartitionsContainer.Replace("CN=Partitions,CN=Configuration,", "") #>
+    $SchemaVersion = Get-ADObject -Server $forest -Identity $SchemaPartition -Credential $Credential -Properties * | Select-Object objectVersion    
     $configPartition = $ForestInfo.PartitionsContainer.Replace("CN=Partitions,", "")
 
     # Check if AD Recycle Bin support is enabled
