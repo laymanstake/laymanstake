@@ -276,19 +276,32 @@ Function Get-ADDNSDetails {
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator    
     
     try {
-        $DNSServers = (Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { ((Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { (Get-WmiObject  -Class Win32_serverfeature  -ComputerName $_.Name -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "DNS Server" }) } | Select-Object Name, IPv4Address) } | Select-Object Name, IPv4Address
+        $DNSServers = (Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { Get-WmiObject  -Class Win32_serverfeature  -ComputerName $_.Name -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "DNS Server" } } | Select-Object Name, IPv4Address
     }
     catch {
         Write-Log -logtext "Failed to get DNS servers list as one or more DC denied service details access : $($_.Exception.Message)" -logpath $logpath
     }
 
     ForEach ($DNSServer in $DNSServers) {
-        $Scavenging = Get-DnsServerScavenging -ComputerName $DNSServer.Name
+        try {
+            $Scavenging = Get-DnsServerScavenging -ComputerName $DNSServer.Name -ErrorAction SilentlyContinue
+        }
+        catch {
+            Write-Log -logtext "Could not get DNS Scanvenging information from DNS Server $($DNSServer.Name) : $($_.Exception.Message)" -logpath $logpath
+        }
+
+        try {
+            $Forwarders = (Get-DnsServerForwarder -ComputerName $DNSServer.Name -ErrorAction SilentlyContinue).IPAddress
+        }
+        catch {
+            Write-Log -logtext "Could not get DNS Forwarder info from DNS Server $($DNSServer.Name) : $($_.Exception.Message)" -logpath $logpath
+        }
+
         $DNSServerDetails += [PSCustomObject]@{
             ServerName         = $DNSServer.Name
             IPAddress          = $DNSServer.IPv4Address
             OperatingSystem    = (Get-ADComputer $DNSServer.Name -Properties OperatingSystem -Server $PDC -Credential $Credential).OperatingSystem
-            Forwarders         = (Get-DnsServerForwarder -ComputerName $DNSServer.Name).IPAddress -join "`n"
+            Forwarders         = $Forwarders -join "`n"
             ScanvengingState   = $Scavenging.ScavengingState
             ScavengingInterval = $Scavenging.ScavengingInterval
             NoRefreshInterval  = $Scavenging.NoRefreshInterval
@@ -1020,12 +1033,22 @@ Function Get-ADSiteDetails {
 
     $SiteDetails = @()
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
-    $sites = Get-ADReplicationSite -Filter * -Server $PDC -Credential $Credential -Properties WhenCreated, WhenChanged, ProtectedFromAccidentalDeletion, Subnets    
+    try {
+        $sites = Get-ADReplicationSite -Filter * -Server $PDC -Credential $Credential -Properties WhenCreated, WhenChanged, ProtectedFromAccidentalDeletion, Subnets    
+    }
+    catch {
+        Write-Log -logtext "Failed to get replication sites : $($_.Exception.Message)" -logpath $logpath
+    }
 
     foreach ($site in $sites) {        
         $dcs = @(Get-ADDomainController -Filter { Site -eq $site.Name } -Server $PDC -Credential $Credential)
         if ($dcs.Count -eq 0) {
-            $links = Get-ADReplicationSiteLink -Filter * -Server $PDC -Credential $Credential -Properties InterSiteTransportProtocol, replInterval, ProtectedFromAccidentalDeletion | Where-Object { $_.sitesIncluded -contains $site.DistinguishedName }
+            try {           
+                $links = Get-ADReplicationSiteLink -Filter * -Server $PDC -Credential $Credential -Properties InterSiteTransportProtocol, replInterval, ProtectedFromAccidentalDeletion | Where-Object { $_.sitesIncluded -contains $site.DistinguishedName }
+            }
+            catch {
+                Write-Log -logtext "Failed to get replication site link from $PDC : $($_.Exception.Message)" -logpath $logpath
+            }
             foreach ($link in $links) {
                 $SiteDetails += [pscustomobject]@{
                     DomainName                          = $DomainName
@@ -1045,7 +1068,12 @@ Function Get-ADSiteDetails {
         }
         else {
             foreach ($dc in $dcs) {
-                $links = Get-ADReplicationSiteLink -Filter * -Server $PDC -Credential $Credential -Properties InterSiteTransportProtocol, replInterval, ProtectedFromAccidentalDeletion | Where-Object { $_.sitesIncluded -contains $site.DistinguishedName }
+                try {
+                    $links = Get-ADReplicationSiteLink -Filter * -Server $PDC -Credential $Credential -Properties InterSiteTransportProtocol, replInterval, ProtectedFromAccidentalDeletion | Where-Object { $_.sitesIncluded -contains $site.DistinguishedName }
+                }
+                catch {
+                    Write-Log -logtext "Failed to get replication site link from $($DC.Name) : $($_.Exception.Message)" -logpath $logpath
+                }
                 foreach ($link in $links) {
                     $SiteDetails += [pscustomobject]@{
                         DomainName                          = $DomainName
@@ -1080,7 +1108,7 @@ Function Get-PrivGroupDetails {
     )
 
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
-    $domainSID = (Get-ADDomain $DomainName -server $PDC -Credential $Credential).domainSID.Value
+    $domainSID = (Get-ADDomain $DomainName -server $PDC -Credential $Credential -ErrorAction SilentlyContinue).domainSID.Value
     $PrivGroupSIDs = @(@("Domain Admins", ($domainSID + "-512")), 
         @("Domain Guests", ($domainSID + "-514")), 
         @("Cert Publishers", ($domainSID + "-517")), 
@@ -1188,7 +1216,7 @@ Function Get-BuiltInUserDetails {
     )
 
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
-    $domainSID = (Get-ADDomain $DomainName -server $PDC -Credential $Credential).domainSID.Value
+    $domainSID = (Get-ADDomain $DomainName -server $PDC -Credential $Credential -ErrorAction SilentlyContinue).domainSID.Value
     $BuiltInUserSIDs = @(@("Administrator", ($domainSID + "-500")), @("Guest", ($domainSID + "-501")), @("krbtgt", ($domainSID + "-502")))
 
     $BuiltInUsers = @()
@@ -1326,52 +1354,54 @@ Function Start-SecurityCheck {
             ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').GetValue('InactivityTimeoutSecs')
             )
             $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).Close()
+            $results = $null
         }
         catch {
             Write-Log -logtext "Could not check for security related registry keys on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
         }
-        
-        $NTLM = switch ($results[0]) {
-            5 { "Send NTLMv2 response only. Refuse LM & NTLM" }
-            4 { "Send NTLMv2 response only. Refuse LM" }
-            3 { "Send NTLMv2 response only" }
-            2 { "Send NTLM response only" }
-            1 { "Send LM & NTLM - use NTLMv2 session security if negotiated" }
-            0 { "Send LM & NTLM responses" }
-            Default {
-                switch ((Get-ADCOmputer $dc -Properties operatingsystem).operatingsystem ) {
-                    { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012 R2*" } { "Send NTLMv2 response only. Refuse LM & NTLM" }
-                    Default { "Not configured, OS default assumed" }
+        if ($results) {
+            $NTLM = switch ($results[0]) {
+                5 { "Send NTLMv2 response only. Refuse LM & NTLM" }
+                4 { "Send NTLMv2 response only. Refuse LM" }
+                3 { "Send NTLMv2 response only" }
+                2 { "Send NTLM response only" }
+                1 { "Send LM & NTLM - use NTLMv2 session security if negotiated" }
+                0 { "Send LM & NTLM responses" }
+                Default {
+                    switch ((Get-ADCOmputer $dc -Properties operatingsystem).operatingsystem ) {
+                        { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012 R2*" } { "Send NTLMv2 response only. Refuse LM & NTLM" }
+                        Default { "Not configured, OS default assumed" }
+                    }
                 }
             }
-        }
 
-        $LMHash = switch ($results[1]) {
-            1 { "Enabled" }
-            0 { "Disabled" }
-            Default { "Not configured" }
-        }
+            $LMHash = switch ($results[1]) {
+                1 { "Enabled" }
+                0 { "Disabled" }
+                Default { "Not configured" }
+            }
 
-        $RestrictAnnon = switch ($results[2]) {
-            0 { "Disabled" }
-            1 { "Enabled" }
-            Default { "Not configured" }
-        }
+            $RestrictAnnon = switch ($results[2]) {
+                0 { "Disabled" }
+                1 { "Enabled" }
+                Default { "Not configured" }
+            }
 
-        $LDAPIntegrity = switch ($results[3]) {
-            0 { "Does not requires signing" }
-            1 { "Requires signing" }
-            Default { "Not configured" }
-        }
+            $LDAPIntegrity = switch ($results[3]) {
+                0 { "Does not requires signing" }
+                1 { "Requires signing" }
+                Default { "Not configured" }
+            }
 
-        $InactivityTimeout = switch ( $results[4] ) {
-            { $_ -le 900 -AND $_ -ne 0 -AND $_ -ne $null } { "900 or fewer second(s), but not 0: $($_)" }
-            { $_ -eq 0 } { "0 second" }
-            { $_ -gt 900 } { "More than 900 seconds: $($_) seconds" }
-            Default { 
-                switch ((Get-ADCOmputer $dc -Properties operatingsystem).operatingsystem ) {
-                    { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012*" } { "OS default: 900 second" }
-                    Default { "Unlimited" }
+            $InactivityTimeout = switch ( $results[4] ) {
+                { $_ -le 900 -AND $_ -ne 0 -AND $_ -ne $null } { "900 or fewer second(s), but not 0: $($_)" }
+                { $_ -eq 0 } { "0 second" }
+                { $_ -gt 900 } { "More than 900 seconds: $($_) seconds" }
+                Default { 
+                    switch ((Get-ADCOmputer $dc -Properties operatingsystem).operatingsystem ) {
+                        { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012*" } { "OS default: 900 second" }
+                        Default { "Unlimited" }
+                    }
                 }
             }
         }
@@ -1737,7 +1767,10 @@ function New-BaloonNotification {
     $tip.BalloonTipTitle = $title    
     $tip.Visible = $true            
     
-    register-objectevent $tip BalloonTipClicked BalloonClicked_event -Action { $script.Invoke() } | Out-Null
+    try {
+        register-objectevent $tip BalloonTipClicked BalloonClicked_event -Action { $script.Invoke() } | Out-Null
+    }
+    catch {}
     $tip.ShowBalloonTip(50000) # Even if we set it for 1000 milliseconds, it usually follows OS minimum 10 seconds
     Start-Sleep -s 10
     
@@ -1892,9 +1925,9 @@ function Get-ADReplicationHealth {
     foreach ($dc in $domainControllers) {
         try {
             $dcName = $dc.Name        
-            $replicationInfo = Get-ADReplicationPartnerMetadata -Target $dcName -Credential $Credential
+            $replicationInfo = Get-ADReplicationPartnerMetadata -Target $dcName -Credential $Credential -ErrorAction SilentlyContinue
         
-            $replicationFailures = Get-ADReplicationFailure -Target $dcName -Credential $Credential
+            $replicationFailures = Get-ADReplicationFailure -Target $dcName -Credential $Credential -ErrorAction SilentlyContinue
 
             foreach ($partner in $replicationInfo) {
                 $partnerData = Get-ADDomainController -Identity $partner.Partner -Server $DomainName -Credential $Credential
@@ -2226,7 +2259,7 @@ Function Get-ADForestDetails {
     }
 
     $DomainSummary = ($DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>") -replace '<td>Reg not found</td>', '<td bgcolor="red">Reg not found</td>'
-    $DomainHealthSumamry = ($ADHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controller health Summary</h2>") -replace "`n", "<br>" -replace '<td>DC Down</td>', '<td bgcolor="red">DC Down</td>'
+    $DomainHealthSumamry = ($ADHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controller health Summary</h2>") -replace "`n", "<br>" -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
     $ReplhealthSummary = ($ReplicationHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Replication health Summary</h2>") -replace "`n", "<br>"
     $DNSSummary = ($DNSServerDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Servers Summary</h2>") -replace "`n", "<br>"
     $DNSZoneSummary = ($DNSZoneDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Zones Summary</h2>") -replace "`n", "<br>"
