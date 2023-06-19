@@ -159,6 +159,7 @@ Function Get-ADFSDetails {
 
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
 
+    $i = 0
     Get-ADComputer -Filter { OperatingSystem -like "*Server*" } -Server $PDC -Credential $Credential |
     ForEach-Object {
         $computer = $_.Name
@@ -173,6 +174,13 @@ Function Get-ADFSDetails {
         }
         if ($service[1] -eq "adsync" ) {
             $aadconnectServers += $computer
+        }
+
+        $i++
+        if (($i % 10) -ne 0) {
+            $message = "$i servers checked so far."
+            New-BaloonNotification -title "Information" -message $message
+            Write-Log -logtext $message -logpath $logpath
         }
     }
 
