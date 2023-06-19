@@ -2005,7 +2005,9 @@ Function Get-ADForestDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)]$ReportPath = $ReportPath1,
         [Parameter(ValueFromPipeline = $true, mandatory = $false)]$CSSHeader = $header,
         [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)]$ChildDomain
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)]$ChildDomain,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$ADFS
+
     )    
 
     # Collecting information about current Forest configuration
@@ -2205,19 +2207,21 @@ Function Get-ADForestDetails {
         $ServerOSDetails += Get-DomainServerDetails -DomainName $domain -credential $Credential
         $ClientOSDetails += Get-DomainClientDetails -DomainName $domain -credential $Credential
         
-        $message = "Looking for ADFS/ ADSync server in domain: $Domain. It might take long time"
-        New-BaloonNotification -title "Caution" -message $message -icon Warning
-        Write-Log -logtext $message -logpath $logpath
+        if ($ADFS) {
+            $message = "Looking for ADFS/ ADSync server in domain: $Domain. It might take long time"
+            New-BaloonNotification -title "Caution" -message $message -icon Warning
+            Write-Log -logtext $message -logpath $logpath
 
-        $ADSyncDetail, $ADFSDetail = Get-ADFSDetails -DomainName $domain -credential $Credential
-        $ADFSDetail = $ADFSDetail | Sort-Object * -Unique
-        $ADFSDetails += $ADFSDetail
-        $ADSyncDetail = $ADSyncDetail | Sort-Object * -Unique
-        $ADSyncDetails += $ADSyncDetail
+            $ADSyncDetail, $ADFSDetail = Get-ADFSDetails -DomainName $domain -credential $Credential
+            $ADFSDetail = $ADFSDetail | Sort-Object * -Unique
+            $ADFSDetails += $ADFSDetail
+            $ADSyncDetail = $ADSyncDetail | Sort-Object * -Unique
+            $ADSyncDetails += $ADSyncDetail
         
-        $message = "Lookup for ADFS ($($ADFSDetail.SERVERNAME.count)) / ADSync ($($ADSyncDetail.SERVERNAME.count)) server in domain: $Domain done."
-        New-BaloonNotification -title "Information" -message $message
-        Write-Log -logtext $message -logpath $logpath        
+            $message = "Lookup for ADFS ($($ADFSDetail.SERVERNAME.count)) / ADSync ($($ADSyncDetail.SERVERNAME.count)) server in domain: $Domain done."
+            New-BaloonNotification -title "Information" -message $message
+            Write-Log -logtext $message -logpath $logpath        
+        }
         
         $DNSServerDetails += Get-ADDNSDetails -DomainName $domain -credential $Credential
         $DNSZoneDetails += Get-ADDNSZoneDetails -DomainName $domain -credential $Credential
