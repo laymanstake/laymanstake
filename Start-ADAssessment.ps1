@@ -586,6 +586,9 @@ Function Get-DHCPInventory {
         catch {
             Write-Log -logtext "Could not get scopes etc details for DHCP Server $dhcpserver : $($_.Exception.Message)" -logpath $logpath
         }
+        $message = "Working over DHCP Server $dhcpserver related details."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
     }    
 
     
@@ -1019,6 +1022,10 @@ Function Get-ADDomainDetails {
             }
         }
     }
+
+    $message = "Working over domain: $DomainName domain controller $($dc.Name) details."
+    New-BaloonNotification -title "Information" -message $message
+    Write-Log -logtext $message -logpath $logpath
 
     return $DomainDetails    
 }
@@ -1500,6 +1507,9 @@ Function Start-SecurityCheck {
             }
             Write-Log -logtext "Could not check for security related security settings on domain controller $dc as DC is down : $($_.exception.message)" -logpath $logpath
         }
+        $message = "Working over domain: $DomainName Domain Controller $DC security checks."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
     }
 
     return $SecuritySettings
@@ -1708,6 +1718,9 @@ Function Get-SystemInfo {
             Write-Log -logtext "Could not get inventory info from server $($s.Name) : $($_.Exception.Message)" -logpath $logpath
             Continue
         }
+        $message = "Working over domain: $DomainName Domain Controller $($s.Name) inventory details."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
     }
 
     Return $infoObject
@@ -1925,6 +1938,10 @@ function Test-ADHealth {
                 DCDIAG_Advertising  = $setdcstatus
             }            
         }
+    
+        $message = "Working over domain: $DomainName Domain Controller $DCserver health checks."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
     }
 
     Return $Report 
