@@ -265,6 +265,7 @@ Function Get-PKIDetails {
         }
         catch {
             Write-Log -logtext "PKI Server - WinRM access denied, can't obtain SHA information from $server : $($_.Exception.Message)" -logpath $logpath            
+            Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "SecureHashAlgo" -value "UNKNOWN"
         }
     }    
     
