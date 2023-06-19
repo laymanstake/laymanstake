@@ -1164,7 +1164,7 @@ Function Get-ADGroupDetails {
 
     $AllGroups = Get-ADGroup -Filter { GroupCategory -eq "Security" } -Properties GroupScope -Server $PDC -Credential $Credential
     try {
-        $EmptyGroups = $AllGroups |  Where-Object { -NOT( Get-ADGroupMember $_  -Server $PDC  -Credential $Credential) }
+        $EmptyGroups = $AllGroups | Where-Object { $_.Name -ne "Domain Computers" -AND $_.Name -ne "Domain Users" } |  Where-Object { -NOT( Get-ADGroupMember $_ -Server $PDC  -Credential $Credential) }
     }
     catch {
         Write-Log -logtext "Could not check all groups for empty groups: $($_.Exception.Message)" -logpath $logpath
@@ -1418,7 +1418,7 @@ Function Start-SecurityCheck {
                     { $_ -eq 0 } { "0 second" }
                     { $_ -gt 900 } { "More than 900 seconds: $($_) seconds" }
                     Default { 
-                        switch ((Get-ADCOmputer $dc -Properties operatingsystem).operatingsystem ) {
+                        switch ((Get-ADCOmputer ($dc).split(".")[0] -Properties operatingsystem -Server $PDC).operatingsystem ) {
                             { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012*" } { "OS default: 900 second" }
                             Default { "Unlimited" }
                         }
