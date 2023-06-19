@@ -177,7 +177,7 @@ Function Get-ADFSDetails {
         }
 
         $i++
-        if (($i % 10) -ne 0) {
+        if (($i % 10) -eq 1) {
             $message = "$i servers checked so far."
             New-BaloonNotification -title "Information" -message $message
             Write-Log -logtext $message -logpath $logpath
