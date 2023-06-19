@@ -2273,13 +2273,13 @@ Function Get-ADForestDetails {
     $PKISummary = ($PKIDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Certificate servers Summary</h2>") -replace '<td>SHA1RSA</td>', '<td bgcolor="red">SHA1RSA</td>'
     #}
     
-    #If ($ADSyncDetails) {
-    $ADSyncSummary = ($ADSyncDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADSync servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
-    #}
+    If ($ADSyncDetails) {
+        $ADSyncSummary = ($ADSyncDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADSync servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
+    }
     
-    #If ($ADFSDetails) {
-    $ADFSSummary = ($ADFSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADFS servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>' -replace "`n", "<br>"
-    #}    
+    If ($ADFSDetails) {
+        $ADFSSummary = ($ADFSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADFS servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>' -replace "`n", "<br>"
+    }    
     
     If ($ClientOSDetails) {        
         $ClientOSSummary = $ClientOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Client OS Summary</h2>"
