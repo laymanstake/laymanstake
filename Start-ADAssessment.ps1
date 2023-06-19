@@ -1372,11 +1372,11 @@ Function Start-SecurityCheck {
             ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Services\NTDS\Parameters').GetValue('LDAPServerIntegrity'),
             ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').GetValue('InactivityTimeoutSecs')
                 )
-                $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).Close()
-                $results = $null
+                $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).Close()                
             }
             catch {
                 Write-Log -logtext "Could not check for security related registry keys on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+                $results = $null
             }
             if ($results) {
                 $NTLM = switch ($results[0]) {
@@ -1423,9 +1423,15 @@ Function Start-SecurityCheck {
                         }
                     }
                 }
+
+                $settings = ($NTLM, $LMHash, $RestrictAnnon, $LDAPIntegrity, $InactivityTimeout)
+            }
+            else {
+                $settings = ("Access denied", "Access denied", "Access denied", "Access denied", "Access denied")
+                Write-Log -logtext "Could not check for security related security settings on domain controller $dc as regisitry not accessible : $($_.exception.message)" -logpath $logpath
             }
 
-            $settings = ($NTLM, $LMHash, $RestrictAnnon, $LDAPIntegrity, $InactivityTimeout)   
+            
 
             if (Test-WSMan -ComputerName $DC -ErrorAction SilentlyContinue) {
                 try {
@@ -2239,21 +2245,35 @@ Function Get-ADForestDetails {
         Write-Log -logtext $message -logpath $logpath        
         
         $EmptyOUDetails += Get-EmptyOUDetails -DomainName $domain -credential $Credential
-        $GPOSummaryDetails += Get-ADGPOSummary -DomainName $domain -credential $Credential
         
         $message = "Working over domain: $Domain GPO related details."
         New-BaloonNotification -title "Information" -message $message
-        Write-Log -logtext $message -logpath $logpath        
-        
+        Write-Log -logtext $message -logpath $logpath
+
+        $GPOSummaryDetails += Get-ADGPOSummary -DomainName $domain -credential $Credential
         $GPODetails += Get-GPOInventory -DomainName $domain
+        
+        $message = "GPO related details from domain: $Domain done."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+
         $SysvolNetlogonPermissions += Get-SysvolNetlogonPermissions -DomainName $domain -Credential $Credential 
         
         $message = "Working over domain: $Domain security setting."
         New-BaloonNotification -title "Information" -message $message
-        Write-Log -logtext $message -logpath $logpath        
+        Write-Log -logtext $message -logpath $logpath
         
         $SecuritySettings += Start-SecurityCheck -DomainName $domain -Credential $Credential
-        $unusedScripts += Get-UnusedNetlogonScripts -DomainName $domain -Credential $Credential        
+
+        $message = "Security setting details from domain: $Domain done."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+
+        $unusedScripts += Get-UnusedNetlogonScripts -DomainName $domain -Credential $Credential
+
+        $message = "Work over domain: $Domain related details done."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
     }    
 
     # This scetion prepares HTML report
