@@ -995,7 +995,7 @@ Function Get-ADDomainDetails {
             }
 
             if ($InstalledFeatures) {
-                $UndesiredFeature = (Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject $InstalledFeatures  -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject) -join "`n"
+                $UndesiredFeature = (Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject $InstalledFeatures  -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject)
             }
 
             $SMBStatus = Get-SMBv1Status -computername $dc.Name -Credential $Credential            
@@ -1026,7 +1026,7 @@ Function Get-ADDomainDetails {
                 Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc).Status
                 NetlogonParameter           = $Results[0]
                 ReadOnly                    = $dc.IsReadOnly                
-                UndesiredFeatures           = $UndesiredFeature
+                UndesiredFeatures           = $UndesiredFeature -join "`n"
             }
         }
     }
@@ -2330,7 +2330,7 @@ Function Get-ADForestDetails {
         $unusedScriptsSummary = ($unusedScripts | ConvertTo-Html -As Table  -Fragment -PreContent "<h2> Unused Netlogon Scripts summary </h2>") -replace "`n", "<br>"
     }
 
-    $DomainSummary = ($DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>") -replace '<td>Reg not found</td>', '<td bgcolor="red">Reg not found</td>'
+    $DomainSummary = ($DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>") -replace '<td>Reg not found</td>', '<td bgcolor="red">Reg not found</td>' -replace "`n", "<br>"
     $DomainHealthSumamry = ($ADHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controller health Summary</h2>") -replace "`n", "<br>" -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
     $ReplhealthSummary = ($ReplicationHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Replication health Summary</h2>") -replace "`n", "<br>"
     $DNSSummary = ($DNSServerDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Servers Summary</h2>") -replace "`n", "<br>"
