@@ -984,7 +984,7 @@ Function Get-ADDomainDetails {
             }
 
             if ($InstalledFeatures) {
-                $UndesiredFeatures = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject $InstalledFeatures  -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
+                $UndesiredFeature = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject $InstalledFeatures  -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
             }
 
             $SMBStatus = Get-SMBv1Status -computername $dc.Name -Credential $Credential            
@@ -1015,7 +1015,7 @@ Function Get-ADDomainDetails {
                 Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc).Status
                 NetlogonParameter           = $Results[0]
                 ReadOnly                    = $dc.IsReadOnly                
-                UndesiredFeatures           = $UndesiredFeatures
+                UndesiredFeatures           = $UndesiredFeature
             }
         }
     }
