@@ -2247,11 +2247,12 @@ Function Get-ADForestDetails {
         
         $EmptyOUDetails += Get-EmptyOUDetails -DomainName $domain -credential $Credential
         
-        $message = "Working over domain: $Domain GPO related details."
+        $GPOSummaryDetails += Get-ADGPOSummary -DomainName $domain -credential $Credential
+
+        $message = "Working over domain: $Domain GPO ($($GPOSummaryDetails.AllGPOs)) related details."
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
-
-        $GPOSummaryDetails += Get-ADGPOSummary -DomainName $domain -credential $Credential
+        
         $GPODetails += Get-GPOInventory -DomainName $domain
         
         $message = "GPO related details from domain: $Domain done."
@@ -2343,8 +2344,8 @@ Function Get-ADForestDetails {
     $PwdPolicySummary = $PasswordPolicyDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Password Policy Summary</h2>"
     $ServerOSSummary = $ServerOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Server OS Summary</h2>"
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
-    $GPOSummary = ($GPOSummaryDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
-    $GPOInventory = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Unlinked GPO Summary</h2>") -replace "`n", "<br>"
+    $GPOSummary = ($GPOSummaryDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>GPO Summary</h2>") -replace "`n", "<br>"
+    $GPOInventory = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>GPO Inventory</h2>") -replace "`n", "<br>"
     $SysvolNetlogonPermSummary = ($SysvolNetlogonPermissions | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Sysvol and Netlogon Permissions Summary</h2>") -replace "`n", "<br>"
     $SecuritySummary = ($SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>") -replace "`n", "<br>" -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>' -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
     $DCSummary = ($DCInventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers Inventory</h2>") -replace "`n", "<br>"
