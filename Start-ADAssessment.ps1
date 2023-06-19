@@ -1099,6 +1099,9 @@ Function Get-ADSiteDetails {
                 }
             }            
         }
+        $message = "Working over domain: $DomainName site $($site.Name) details."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
     }    
 
     $SiteDetails = $SiteDetails | Select-Object DomainName, SiteName, SiteCreated, SiteModified, Subnets, SiteProtectedFromAccidentalDeletion, DCinSite, SiteLink, SiteLinkType, SiteLinkCost, ReplicationInterval, LinkProtectedFromAccidentalDeletion | Sort-Object DomainName, SiteLink
