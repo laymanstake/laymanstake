@@ -995,7 +995,7 @@ Function Get-ADDomainDetails {
             }
 
             if ($InstalledFeatures) {
-                $UndesiredFeature = Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject $InstalledFeatures  -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject
+                $UndesiredFeature = (Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject $InstalledFeatures  -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject) -join "`n"
             }
 
             $SMBStatus = Get-SMBv1Status -computername $dc.Name -Credential $Credential            
