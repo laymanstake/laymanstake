@@ -1361,6 +1361,7 @@ Function Start-SecurityCheck {
 
     $SecuritySettings = @()
     $DCs = (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).hostname
+    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
 
     ForEach ($DC in $DCs) {
         if (Test-Connection -ComputerName $Dc -Count 4 -Quiet) {
@@ -1387,7 +1388,7 @@ Function Start-SecurityCheck {
                     1 { "Send LM & NTLM - use NTLMv2 session security if negotiated" }
                     0 { "Send LM & NTLM responses" }
                     Default {
-                        switch ((Get-ADCOmputer $dc -Properties operatingsystem).operatingsystem ) {
+                        switch ((Get-ADCOmputer ($dc).split(".")[0] -Properties operatingsystem -Server $PDC).operatingsystem ) {
                             { $_ -like "*2022*" -OR $_ -like "*2019*" -OR $_ -like "*2016*" -OR $_ -like "*2012 R2*" } { "Send NTLMv2 response only. Refuse LM & NTLM" }
                             Default { "Not configured, OS default assumed" }
                         }
