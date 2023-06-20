@@ -2278,8 +2278,16 @@ Function Get-ADForestDetails {
             Write-Log -logtext $message -logpath $logpath        
         }
         
+        $message = "Working over domain: $Domain DNS related details."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+
         $DNSServerDetails += Get-ADDNSDetails -DomainName $domain -credential $Credential
         $DNSZoneDetails += Get-ADDNSZoneDetails -DomainName $domain -credential $Credential
+
+        $message = "DNS relation detals collection from domain: $Domain done."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
         
         $message = "Looking for empty OUs in domain: $Domain ."
         New-BaloonNotification -title "Information" -message $message
@@ -2291,11 +2299,12 @@ Function Get-ADForestDetails {
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
 
+        $GPOSummaryDetails += Get-ADGPOSummary -DomainName $domain -credential $Credential
+
         $message = "Working over domain: $Domain GPO ($($GPOSummaryDetails.AllGPOs)) related details."
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
-        
-        $GPOSummaryDetails += Get-ADGPOSummary -DomainName $domain -credential $Credential
+                
         $GPODetails += Get-GPOInventory -DomainName $domain
         
         $message = "GPO related details from domain: $Domain done."
