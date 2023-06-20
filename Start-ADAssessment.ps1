@@ -156,7 +156,7 @@ Function Get-ADFSDetails {
     $ADFSServerDetails = @()
     $AADCServerDetails = @()
 
-    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
+    $PDC = (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential | ForEach-Object { Test-Connection -Computername $_.hostName -count 1 } | sort-object Responsetime | select-Object Address, Responsetime -first 1).Address
 
     $i = 0
     Get-ADComputer -Filter { OperatingSystem -like "*Server*" } -Server $PDC -Credential $Credential |
@@ -252,7 +252,7 @@ Function Get-PKIDetails {
 
     $PKIDetails = New-Object psobject
     
-    $PDC = (Get-ADDomain -Identity $ForestName -Credential $Credential -Server $ForestName).PDCEmulator    
+    $PDC = (Get-ADDomainController -Filter *  -Server $ForestName -Credential $Credential | ForEach-Object { Test-Connection -Computername $_.hostName -count 1 } | sort-object Responsetime | select-Object Address, Responsetime -first 1).Address
     $PKI = Get-ADObject -Filter { objectClass -eq "pKIEnrollmentService" } -Server $PDC -Credential $Credential -SearchBase "CN=Enrollment Services,CN=Public Key Services,CN=Services,$((Get-ADRootDSE).ConfigurationNamingContext)"  -Properties DisplayName, DnsHostName | Select-Object DisplayName, DnsHostName, @{l = "OperatingSystem"; e = { (Get-ADComputer ($_.DNShostname -replace ".$ForestName") -Properties OperatingSystem -server $PDC -Credential $Credential).OperatingSystem } }, @{l = "IPv4Address"; e = { ([System.Net.Dns]::GetHostAddresses($_.DnsHostName) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n" } }
 
     If ($PKI) {        
@@ -281,7 +281,7 @@ Function Get-ADDNSDetails {
     )
 
     $DNSServerDetails = @()
-    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator    
+    $PDC = (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential | ForEach-Object { Test-Connection -Computername $_.hostName -count 1 } | sort-object Responsetime | select-Object Address, Responsetime -first 1).Address
     
     try {
         $DNSServers = (Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { Get-WmiObject  -Class Win32_serverfeature  -ComputerName $_.Name -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "DNS Server" } } | Select-Object Name, IPv4Address
@@ -335,7 +335,7 @@ Function Get-ADDNSZoneDetails {
     )
 
     $DNSServerZoneDetails = @()
-    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator    
+    $PDC = (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential | ForEach-Object { Test-Connection -Computername $_.hostName -count 1 } | sort-object Responsetime | select-Object Address, Responsetime -first 1).Address
     
     $DNSZones = Get-DnsServerZone -ComputerName $PDC | Where-Object { -Not $_.IsReverseLookupZone } | Select-Object DistinguishedName, ZoneName, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, MasterServers, SecureSecondaries, SecondaryServers
 
@@ -416,7 +416,7 @@ Function Get-AdminCountDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
     
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator
+    $PDC = (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential | ForEach-Object { Test-Connection -Computername $_.hostName -count 1 } | sort-object Responsetime | select-Object Address, Responsetime -first 1).Address
     $protectedGroups = (Get-ADGroup -Filter * -Server $PDC -Credential $Credential -properties adminCount | Where-Object { $_.adminCount -eq 1 }).Name
 
     $ProtectedUsers = ($protectedGroups | ForEach-Object { Get-ADGroupMemberRecursive -GroupName $_ -DomainName $DomainName -Credential $Credential } | Sort-Object Name -Unique).Name
@@ -637,7 +637,7 @@ Function Get-EmptyOUDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
-    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
+    $PDC = (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential | ForEach-Object { Test-Connection -Computername $_.hostName -count 1 } | sort-object Responsetime | select-Object Address, Responsetime -first 1).Address
 
     $AllOUs = Get-ADOrganizationalUnit -Filter * -Server $PDC -Credential $Credential -Properties CanonicalName
     $EmptyOUs = ($AllOUs | Where-Object { -not ( Get-ADObject -Filter * -SearchBase $_.Distinguishedname -SearchScope OneLevel -ResultSetSize 1 -Server $PDC -Credential $Credential) }).CanonicalName
@@ -662,7 +662,7 @@ Function Get-ADObjectsToClean {
 
     $ObjectsToClean = @()
     $Domain = Get-ADDomain -Identity $DomainName -Credential $Credential
-    $PDC = $Domain.PDCEmulator
+    $PDC = (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential | ForEach-Object { Test-Connection -Computername $_.hostName -count 1 } | sort-object Responsetime | select-Object Address, Responsetime -first 1).Address
     $orphanedObj = Get-ADObject -Filter * -SearchBase "cn=LostAndFound,$($Domain.DistinguishedName)" -SearchScope OneLevel -Server $PDC -Credential $Credential
     $lingConfReplObj = Get-ADObject -LDAPFilter "(cn=*\0ACNF:*)" -SearchBase $Domain.DistinguishedName -SearchScope SubTree -Server $PDC -Credential $Credential
 
@@ -724,7 +724,7 @@ Function Get-GPOInventory {
     )
     
     $GPOSummary = @()
-    $PDC = (Get-ADDomain -Identity $DomainName).PDCEmulator    
+    $PDC = (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential | ForEach-Object { Test-Connection -Computername $_.hostName -count 1 } | sort-object Responsetime | select-Object Address, Responsetime -first 1).Address
     $GPOs = Get-GPO -All -Domain $DomainName
     
     $GPOs | ForEach-Object {
@@ -931,7 +931,7 @@ Function Get-ADDomainDetails {
         default { $possibleDFL += "Windows Server 2003" }
     }
     
-    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
+    $PDC = (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential | ForEach-Object { Test-Connection -Computername $_.hostName -count 1 } | sort-object Responsetime | select-Object Address, Responsetime -first 1).Address
 
     if ((Get-ADObject -Server $PDC -Filter { name -like "SYSVOL*" } -Properties replPropertyMetaData -Credential $Credential).ReplPropertyMetadata.count -gt 0) {
         $sysvolStatus = "DFSR"
@@ -1041,7 +1041,7 @@ Function Get-ADDomainDetails {
                 Site                        = $dc.site
                 OSVersion                   = $dc.OperatingSystem
                 IPAddress                   = $dc.IPv4Address
-                FSMORoles                   = (Get-ADDomainController -Identity $dc -Server $dc -Credential $Credential | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
+                FSMORoles                   = (Get-ADDomainController -Identity $dc -Server $PDC -Credential $Credential | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
                 Sysvol                      = $sysvolStatus
                 FSR2DFSR                    = $FSR2DFSRStatus
                 LAPS                        = $null -ne (Get-ADObject -LDAPFilter "(name=ms-Mcs-AdmPwd)" -Server $PDC -Credential $Credential)
@@ -1080,7 +1080,7 @@ Function Get-ADSiteDetails {
     )
 
     $SiteDetails = @()
-    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
+    $PDC = (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential | ForEach-Object { Test-Connection -Computername $_.hostName -count 1 } | sort-object Responsetime | select-Object Address, Responsetime -first 1).Address
     try {
         $sites = Get-ADReplicationSite -Filter * -Server $PDC -Credential $Credential -Properties WhenCreated, WhenChanged, ProtectedFromAccidentalDeletion, Subnets    
     }
@@ -1193,7 +1193,7 @@ Function Get-ADGroupDetails {
     )
 
     $GroupDetails = @()    
-    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
+    $PDC = (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential | ForEach-Object { Test-Connection -Computername $_.hostName -count 1 } | sort-object Responsetime | select-Object Address, Responsetime -first 1).Address
 
     $AllGroups = Get-ADGroup -Filter { GroupCategory -eq "Security" } -Properties GroupScope -Server $PDC -Credential $Credential
 
@@ -1235,7 +1235,7 @@ Function Get-ADUserDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
     )
 
-    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
+    $PDC = (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential | ForEach-Object { Test-Connection -Computername $_.hostName -count 1 } | sort-object Responsetime | select-Object Address, Responsetime -first 1).Address
 
     $AllUsers = Get-ADUser -Filter * -Server $PDC -Properties SamAccountName, Enabled, whenCreated, PasswordLastSet, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, LastLogonTimestamp, LockedOut | Select-object SamAccountName, Enabled, whenCreated, PasswordLastSet, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, @{l = "Lastlogon"; e = { [DateTime]::FromFileTime($_.LastLogonTimestamp) } }, LockedOut    
 
@@ -1335,7 +1335,7 @@ Function Get-DomainServerDetails {
     $DomainServerDetails = @()
     $Today = Get-Date
     $InactivePeriod = 90
-    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
+    $PDC = (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential | ForEach-Object { Test-Connection -Computername $_.hostName -count 1 } | sort-object Responsetime | select-Object Address, Responsetime -first 1).Address
     
     $Servers = Get-ADComputer -Filter { OperatingSystem -Like "*Server*" } -Properties OperatingSystem, PasswordLastSet -Server $PDC -Credential $Credential
     $OSs = $Servers | Group-Object OperatingSystem | Select-Object Name, Count
@@ -1362,7 +1362,7 @@ Function Get-DomainClientDetails {
     $DomainClientDetails = @()
     $Today = Get-Date
     $InactivePeriod = 90
-    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
+    $PDC = (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential | ForEach-Object { Test-Connection -Computername $_.hostName -count 1 } | sort-object Responsetime | select-Object Address, Responsetime -first 1).Address
 
     $Workstations = Get-ADComputer -Filter { OperatingSystem -Notlike "*Server*" } -Properties OperatingSystem, PasswordLastSet -Server $PDC -Credential $Credential
     $OSs = $Workstations | Group-Object OperatingSystem | Select-Object Name, Count
@@ -2301,7 +2301,7 @@ Function Get-ADForestDetails {
 
         $GPOSummaryDetails += Get-ADGPOSummary -DomainName $domain -credential $Credential
 
-        $message = "Working over domain: $Domain GPO ($($GPOSummaryDetails.AllGPOs)) related details."
+        $message = "Working over domain: $Domain GPO ($(($GPOSummaryDetails | Where-Object {$_.Domain -eq $domain}).AllGPOs)) related details."
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
                 
