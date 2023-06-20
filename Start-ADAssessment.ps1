@@ -1573,7 +1573,7 @@ function Get-UnusedNetlogonScripts {
 
     $unusedScripts = @()
     $referencedScripts = @()
-    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
+    $PDC = (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential | ForEach-Object { Test-Connection -Computername $_.hostName -count 1 } | sort-object Responsetime | select-Object Address, Responsetime -first 1).Address
     $netlogonPath = "\\$DomainName\netlogon"
     try {
         $scriptFiles = Get-ChildItem -Path $netlogonPath -File -Recurse | Select-Object -ExpandProperty FullName
