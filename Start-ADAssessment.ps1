@@ -640,8 +640,7 @@ Function Get-EmptyOUDetails {
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
 
     $AllOUs = Get-ADOrganizationalUnit -Filter * -Server $PDC -Credential $Credential -Properties * 
-
-    $EmptyOUs = ($AllOUs | Select-Object Name, CanonicalName, DistinguishedName, @{Name = 'ObjectCount'; Expression = { (Get-ADObject -Server $PDC -Credential $Credential -Filter { ObjectClass -eq 'user' -or ObjectClass -eq 'group' -or ObjectClass -eq 'computer' } -SearchBase $_.DistinguishedName).Count } } | Where-Object { $_.ObjectCount -eq 0 } | Sort-Object CanonicalName).CanonicalName
+    $EmptyOUs = $AllOUs | Where-Object { -not ( Get-ADObject -Filter * -SearchBase $_.Distinguishedname -SearchScope OneLevel -ResultSetSize 1 ) }
 
     $EmptyOUDetails = [PSCustomObject]@{
         Domain       = $domainname
