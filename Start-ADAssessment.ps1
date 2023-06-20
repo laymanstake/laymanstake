@@ -1196,17 +1196,9 @@ Function Get-ADGroupDetails {
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
 
     $AllGroups = Get-ADGroup -Filter { GroupCategory -eq "Security" } -Properties GroupScope -Server $PDC -Credential $Credential
-    $EmptyGroups = @()
-    ForEach ($group in $AllGroups) {
-        if ($group.Name -ne "Domain Computers" -AND $group.Name -ne "Domain Users") {
-            try {
-                $EmptyGroups += $group | Where-Object { -NOT( Get-ADGroupMember $_ -Server $PDC  -Credential $Credential) }         
-            }
-            catch {
-                Write-Log -logtext "Could not check $($group.name) for members: $($_.Exception.Message)" -logpath $logpath
-            }
-        }
-    }
+
+    $Filter = "(&(objectCategory=Group)(!member=*))"
+    $EmptyGroups = Get-ADGroup -LDAPFilter $Filter -Server $PDC -Credential $Credential -Properties GroupScope
 
     $GroupDetails += [PSCustomObject]@{
         DomainName      = $DomainName
