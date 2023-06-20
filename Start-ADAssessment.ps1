@@ -293,6 +293,14 @@ Function Get-ADDNSDetails {
     ForEach ($DNSServer in $DNSServers) {
         try {
             $Scavenging = Get-DnsServerScavenging -ComputerName $DNSServer.Name -ErrorAction SilentlyContinue
+            $LastScavengeTime = $Scavenging.LastScavengeTime
+            if ($LastScavengeTime) {
+                $ScanvengingState = $true # This is a workaround since for corner cases, scanvenging would not be enabled for server but specific zones only and tedius to show that in summary table
+            }
+            else {
+                $ScanvengingState = $false
+                $LastScavengeTime = ""
+            }
         }
         catch {
             Write-Log -logtext "Could not get DNS Scanvenging information from DNS Server $($DNSServer.Name) : $($_.Exception.Message)" -logpath $logpath
@@ -306,15 +314,12 @@ Function Get-ADDNSDetails {
         }
 
         $DNSServerDetails += [PSCustomObject]@{
-            ServerName         = $DNSServer.Name
-            IPAddress          = $DNSServer.IPv4Address
-            OperatingSystem    = (Get-ADComputer $DNSServer.Name -Properties OperatingSystem -Server $PDC -Credential $Credential).OperatingSystem
-            Forwarders         = $Forwarders -join "`n"
-            ScanvengingState   = $Scavenging.ScavengingState
-            ScavengingInterval = $Scavenging.ScavengingInterval
-            NoRefreshInterval  = $Scavenging.NoRefreshInterval
-            RefreshInterval    = $Scavenging.RefreshInterval
-            LastScavengeTime   = $Scavenging.LastScavengeTime
+            ServerName       = $DNSServer.Name
+            IPAddress        = $DNSServer.IPv4Address
+            OperatingSystem  = (Get-ADComputer $DNSServer.Name -Properties OperatingSystem -Server $PDC -Credential $Credential).OperatingSystem
+            Forwarders       = $Forwarders -join "`n"
+            ScanvengingState = $ScanvengingState            
+            LastScavengeTime = $LastScavengeTime
         }        
     }
 
@@ -337,6 +342,19 @@ Function Get-ADDNSZoneDetails {
     ForEach ($DNSZone in $DNSZones) {
         If ($DNSZone.DistinguishedName) {
             $Info = (Get-DnsServerZone -zoneName $DNSZone.ZoneName -ComputerName $PDC | Where-Object { -NOT $_.IsReverseLookupZone -AND $_.ZoneType -ne "Forwarder" }).Distinguishedname | ForEach-Object { Get-ADObject -Identity $_ -Server $PDC -Credential $Credential -Properties ProtectedFromAccidentalDeletion, Created }
+            try {
+                $Aging = Get-DnsServerZoneAging -ZoneName $DNSZone.ZoneName -ComputerName $PDC -ErrorAction SilentlyContinue
+                $ScanvengingState = $Aging.AgingEnabled
+                $RefreshInterval = $Aging.RefreshInterval
+                $NoRefreshInterval = $Aging.NoRefreshInterval
+
+            }
+            catch {
+                $ScanvengingState = "Unknown"
+                $RefreshInterval = "Unknown"
+                $NoRefreshInterval = "Unknown"
+                Write-Log -logtext "DNS Zone $($DNSZone.ZoneName) aging info not completed from $PDC : $($_.Exception.Message)" -logpath $logpath            
+            }
         }
         Else {
             $Info = [PSCustomObject]@{
@@ -349,7 +367,10 @@ Function Get-ADDNSZoneDetails {
         Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name DNSServer -value $PDC
         Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name ProtectedFromDeletion -value $Info.ProtectedFromAccidentalDeletion
         Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name Created -value $Info.Created
-        $DNSServerZoneDetails += $ZoneInfo | Select-Object DNSServer, ZoneName, ProtectedFromDeletion, Created, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, @{l = "MasterServers"; e = { $_.MasterServers -join "`n" } } , SecureSecondaries, @{l = "SecondaryServers"; e = { $_.SecondaryServers -join "`n" } } 
+        Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name ScanvengingState -value $ScanvengingState
+        Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name RefreshInterval -value $RefreshInterval
+        Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name NoRefreshInterval -value $NoRefreshInterval
+        $DNSServerZoneDetails += $ZoneInfo | Select-Object DNSServer, ZoneName, ProtectedFromDeletion, Created, ScanvengingState, RefreshInterval, NoRefreshInterval, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, @{l = "MasterServers"; e = { $_.MasterServers -join "`n" } } , SecureSecondaries, @{l = "SecondaryServers"; e = { $_.SecondaryServers -join "`n" } } 
     }
 
     return $DNSServerZoneDetails
@@ -886,15 +907,28 @@ Function Get-ADDomainDetails {
 
     $dcs = Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential
 
-    $LowestOSversion = ($dcs.OperatingSystemVersion | Measure-Object -Minimum).Minimum
-    switch ($LowestOSversion) {
+    $LowestOSversion = [version]::New(20, 0, 0) # Randomly picked unusually high version number
+    ForEach ($dc in $dcs) {
+        $version = $dc.OperatingSystemVersion -replace " ", "." -replace "\(", "" -replace "\)", "" -split "\."        
+        $major = [int]$version[0]
+        $minor = [int]$version[1]
+        $build = [int]$version[2]
+
+        $osversion = [version]::New($major, $minor, $build) # Covert into a proper version
+
+        If ($osversion -lt $LowestOSversion ) {
+            $LowestOSversion = $osversion
+        }
+    }
+    
+    switch ($LowestOSversion.ToString()) {
         { $_ -like "6.0*" } { $possibleDFL += "Windows Server 2008" }
         { $_ -like "6.1*" } { $possibleDFL += "Windows Server 2008 R2" }
         { $_ -like "6.2*" } { $possibleDFL += "Windows Server 2012" }
         { $_ -like "6.3*" } { $possibleDFL += "Windows Server 2012 R2" }
-        { $_ -like "10.0 (14*" } { $possibleDFL += "Windows Server 2016" }
-        { $_ -like "10.0 (17*" } { $possibleDFL += "Windows Server 2019" }
-        { $_ -like "10.0 (19*" -OR $_ -like "10.0 (2*" } { $possibleDFL += "Windows Server 2022" }
+        { $_ -like "10.0.14*" } { $possibleDFL += "Windows Server 2016" }
+        { $_ -like "10.0.17*" } { $possibleDFL += "Windows Server 2019" }
+        { $_ -like "10.0.19*" -OR $_ -like "10.0.2*" } { $possibleDFL += "Windows Server 2022" }
         default { $possibleDFL += "Windows Server 2003" }
     }
     
@@ -1377,7 +1411,7 @@ Function Start-SecurityCheck {
             }
             catch {
                 Write-Log -logtext "Could not check for security related registry keys on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
-                $results = $null
+                $results = ("", "", "", "", "")
             }
             if ($results) {
                 $NTLM = switch ($results[0]) {
@@ -2366,6 +2400,7 @@ Write-Output "Menu:"
 "Option 3: Press any other key to Quit`n"
 
 $choice = Read-Host "Enter your choice: "
+Write-Output "`nDO NOT OPEN LOG FILE DURING RUN otherwise it would not record"
 
 switch ($choice) {
     '1' {
