@@ -2432,7 +2432,7 @@ switch ($choice) {
         }
 
         if ($test) {
-            Get-ADForestDetails -Credential $Credential
+            Get-ADForestDetails -Credential $Credential -ADFS
         }
         else {
             Write-Host "Credentials not working"
@@ -2459,7 +2459,7 @@ switch ($choice) {
         }
 
         if ($test) {
-            Get-ADForestDetails -Credential $DomainCred -ChildDomain $DomainName
+            Get-ADForestDetails -Credential $DomainCred -ChildDomain $DomainName -ADFS
         }
         else {
             Write-Host "Credentials not working"
