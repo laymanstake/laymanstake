@@ -613,9 +613,9 @@ Function Get-DHCPInventory {
             }        
         }
         catch {
-            Write-Log -logtext "Could not get scopes etc details for DHCP Server $dhcpserver : $($_.Exception.Message)" -logpath $logpath
+            Write-Log -logtext "Could not get scopes etc details for DHCP Server $($dhcp.DNSName) : $($_.Exception.Message)" -logpath $logpath
         }
-        $message = "Working over DHCP Server $dhcpserver related details."
+        $message = "Working over DHCP Server $($dhcp.DNSName) related details."
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
     }    
