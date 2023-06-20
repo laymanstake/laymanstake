@@ -1197,11 +1197,16 @@ Function Get-ADGroupDetails {
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
 
     $AllGroups = Get-ADGroup -Filter { GroupCategory -eq "Security" } -Properties GroupScope -Server $PDC -Credential $Credential
-    try {
-        $EmptyGroups = $AllGroups | Where-Object { $_.Name -ne "Domain Computers" -AND $_.Name -ne "Domain Users" } |  Where-Object { -NOT( Get-ADGroupMember $_ -Server $PDC  -Credential $Credential) }
-    }
-    catch {
-        Write-Log -logtext "Could not check all groups for empty groups: $($_.Exception.Message)" -logpath $logpath
+    $EmptyGroups = @()
+    ForEach ($group in $AllGroups) {
+        if ($group.Name -ne "Domain Computers" -AND $group.Name -ne "Domain Users") {
+            try {
+                $EmptyGroups += $group | Where-Object { -NOT( Get-ADGroupMember $_ -Server $PDC  -Credential $Credential) }         
+            }
+            catch {
+                Write-Log -logtext "Could not check $($group.name) for members: $($_.Exception.Message)" -logpath $logpath
+            }
+        }
     }
 
     $GroupDetails += [PSCustomObject]@{
@@ -2238,7 +2243,17 @@ Function Get-ADForestDetails {
         Write-Log -logtext $message -logpath $logpath
         
         $GroupDetails += Get-ADGroupDetails -DomainName $domain -credential $Credential
+        
+        $message = "Working over domain: $Domain AdminCount enabled user related details."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+
         $UndesiredAdminCount += Get-AdminCountDetails -DomainName $domain -credential $Credential
+
+        $message = "Working over domain: $Domain password policy related details."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+
         $PasswordPolicyDetails += Get-ADPasswordPolicy -DomainName $domain -credential $Credential
         $FGPwdPolicyDetails += Get-FineGrainedPasswordPolicy -DomainName $domain -credential $Credential
         
