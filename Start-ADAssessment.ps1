@@ -640,7 +640,7 @@ Function Get-EmptyOUDetails {
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
 
     $AllOUs = Get-ADOrganizationalUnit -Filter * -Server $PDC -Credential $Credential -Properties * 
-    $EmptyOUs = $AllOUs | Where-Object { -not ( Get-ADObject -Filter * -SearchBase $_.Distinguishedname -SearchScope OneLevel -ResultSetSize 1 ) }
+    $EmptyOUs = ($AllOUs | Where-Object { -not ( Get-ADObject -Filter * -SearchBase $_.Distinguishedname -SearchScope OneLevel -ResultSetSize 1 ) }).Name
 
     $EmptyOUDetails = [PSCustomObject]@{
         Domain       = $domainname
