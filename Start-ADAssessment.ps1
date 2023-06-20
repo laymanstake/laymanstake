@@ -2322,7 +2322,15 @@ Function Get-ADForestDetails {
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
 
+        $message = "Checking for unused scripts in NETLOGON for domain: $Domain ."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+
         $unusedScripts += Get-UnusedNetlogonScripts -DomainName $domain -Credential $Credential
+
+        $message = "Check for unused scripts in NETLOGON for domain: $Domain done."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
 
         $message = "Work over domain: $Domain related details done."
         New-BaloonNotification -title "Information" -message $message
