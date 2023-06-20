@@ -499,121 +499,123 @@ Function Get-DHCPInventory {
     $Reservations = @()
 
     foreach ($dhcp in $DHCPs) {
-        try {
-            $scopes = $null
-            $scopes = (Get-DhcpServerv4Scope -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue)
-            $Res = $scopes | ForEach-Object { Get-DHCPServerv4Lease -ComputerName $dhcp.DNSName -ScopeID $_.ScopeID } | Select-Object ScopeId, IPAddress, HostName, Description, ClientID, AddressState
+        if (Test-Connection -ComputerName $dhcp -count 2) {
+            try {
+                $scopes = $null
+                $scopes = (Get-DhcpServerv4Scope -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue)
+                $Res = $scopes | ForEach-Object { Get-DHCPServerv4Lease -ComputerName $dhcp.DNSName -ScopeID $_.ScopeID } | Select-Object ScopeId, IPAddress, HostName, Description, ClientID, AddressState
     
-            ForEach ($Temp in $Res ) {
-                $Reservation = [PSCustomObject]@{
-                    ServerName   = $dhcp.DNSName
-                    ScopeID      = $Temp.ScopeId
-                    IPAddress    = $Temp.IPAddress
-                    HostName     = $Temp.HostName
-                    Description  = $Temp.Description
-                    ClientID     = $Temp.ClientID
-                    AddressState = $Temp.AddressState
-                } | select-object ServerName, ScopeID, IPAddress, HostName, Description, ClientID, AddressState
-                $Reservations += $Reservation
-            }
-
-            If ($null -ne $scopes) {
-                $GlobalDNSList = $null
-                #getting global DNS settings, in case scopes are configured to inherit these settings
-                $GlobalDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
-                Try { $Option015 = [String](Get-DhcpServerv4OptionValue -OptionId 015 -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
-                Catch { $Option015 = "" }
-
-                $scopes | ForEach-Object {
-                    $row = "" | Select-Object Hostname, ScopeID, SubnetMask, Name, State, StartRange, EndRange, LeaseDuration, Description, DNS1, DNS2, DNS3, DNS4, DNS5, GDNS1, GDNS2, GDNS3, GDNS4, GDNS5, Router, DoGroupId, Option160, option015, Scopeoption015, Exclusions
-                    Try { $DoGroupId = [String](Get-DhcpServerv4OptionValue -OptionId 234 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
-                    Catch { $DoGroupId = "" }
-
-                    Try { $Option160 = [String](Get-DhcpServerv4OptionValue -OptionId 160 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
-                    Catch { $Option160 = "" }
-
-                    Try { $ScopeOption015 = [String](Get-DhcpServerv4OptionValue -OptionId 015 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
-                    Catch { $ScopeOption015 = "" }
-
-                    $router = @()
-                    Try { $router = (Get-DhcpServerv4OptionValue -ComputerName $dhcp.DNSName -OptionId 3 -ScopeID $_.ScopeId -ErrorAction:SilentlyContinue).Value }
-                    Catch { $router = ("") }
-
-                    $ScopeExclusions = @()
-                    Try { $ScopeExclusions = Get-DhcpServerv4ExclusionRange -ComputerName $dhcp.DNSName -ScopeID $_.ScopeId -ErrorAction:SilentlyContinue }
-                    Catch { $ScopeExclusions = ("") }
-
-                    $Exclusions = ""
-                    $z = 0
-                    If ($ScopeExclusions) {
-                        ForEach ($ScopeExclusion in $ScopeExclusions) {
-                            $z++
-                            $ExclusionValue = [String]$ScopeExclusion.StartRange + "-" + [String]$ScopeExclusion.EndRange
-                            if ($z -ge 2) {	$Exclusions = $Exclusions + "," + $ExclusionValue } else { $Exclusions = $ExclusionValue }
-                        }
-                    }
-
-                    if ($router) {
-                        $row.Router = $router[0]
-                    }
-                    else {
-                        $row.Router = ""
-                    }                
-                    $row.Hostname = $dhcp.DNSName
-                    $row.ScopeID = $_.ScopeID
-                    $row.SubnetMask = $_.SubnetMask
-                    $row.Name = $_.Name
-                    $row.State = $_.State
-                    $row.StartRange = $_.StartRange
-                    $row.EndRange = $_.EndRange
-                    $row.LeaseDuration = $_.LeaseDuration
-                    $row.Description = $_.Description
-                    $row.DoGroupId = $DoGroupId
-                    $row.Option160 = $Option160
-                    $row.Option015 = $Option015
-                    $row.ScopeOption015 = $ScopeOption015
-                    $row.Exclusions = $Exclusions
-                    $ScopeDNSList = $null
-                    $ScopeDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
-
-                    If (($null -eq $ScopeDNSList) -and ($null -ne $GlobalDNSList)) {
-                        $row.GDNS1 = $GlobalDNSList[0]
-                        $row.GDNS2 = $GlobalDNSList[1]
-                        $row.GDNS3 = $GlobalDNSList[2]
-                        $row.GDNS4 = $GlobalDNSList[3]
-                        $row.GDNS5 = $GlobalDNSList[4]
-                    }
-                    ElseIf (($null -ne $ScopeDNSList) -and ($null -ne $GlobalDNSList)) {
-                        $row.GDNS1 = $GlobalDNSList[0]
-                        $row.GDNS2 = $GlobalDNSList[1]
-                        $row.GDNS3 = $GlobalDNSList[2]
-                        $row.GDNS4 = $GlobalDNSList[3]
-                        $row.GDNS5 = $GlobalDNSList[4]
-                        $row.DNS1 = $ScopeDNSList[0]
-                        $row.DNS2 = $ScopeDNSList[1]
-                        $row.DNS3 = $ScopeDNSList[2]
-                        $row.DNS4 = $ScopeDNSList[3]
-                        $row.DNS5 = $ScopeDNSList[4]
-                    }
-                    Else {
-                        $row.DNS1 = $ScopeDNSList[0]
-                        $row.DNS2 = $ScopeDNSList[1]
-                        $row.DNS3 = $ScopeDNSList[2]
-                        $row.DNS4 = $ScopeDNSList[3]
-                        $row.DNS5 = $ScopeDNSList[4]
-                    }
-                    $row
-                    $Report += $row
+                ForEach ($Temp in $Res ) {
+                    $Reservation = [PSCustomObject]@{
+                        ServerName   = $dhcp.DNSName
+                        ScopeID      = $Temp.ScopeId
+                        IPAddress    = $Temp.IPAddress
+                        HostName     = $Temp.HostName
+                        Description  = $Temp.Description
+                        ClientID     = $Temp.ClientID
+                        AddressState = $Temp.AddressState
+                    } | select-object ServerName, ScopeID, IPAddress, HostName, Description, ClientID, AddressState
+                    $Reservations += $Reservation
                 }
+
+                If ($null -ne $scopes) {
+                    $GlobalDNSList = $null
+                    #getting global DNS settings, in case scopes are configured to inherit these settings
+                    $GlobalDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
+                    Try { $Option015 = [String](Get-DhcpServerv4OptionValue -OptionId 015 -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
+                    Catch { $Option015 = "" }
+
+                    $scopes | ForEach-Object {
+                        $row = "" | Select-Object Hostname, ScopeID, SubnetMask, Name, State, StartRange, EndRange, LeaseDuration, Description, DNS1, DNS2, DNS3, DNS4, DNS5, GDNS1, GDNS2, GDNS3, GDNS4, GDNS5, Router, DoGroupId, Option160, option015, Scopeoption015, Exclusions
+                        Try { $DoGroupId = [String](Get-DhcpServerv4OptionValue -OptionId 234 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
+                        Catch { $DoGroupId = "" }
+
+                        Try { $Option160 = [String](Get-DhcpServerv4OptionValue -OptionId 160 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
+                        Catch { $Option160 = "" }
+
+                        Try { $ScopeOption015 = [String](Get-DhcpServerv4OptionValue -OptionId 015 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
+                        Catch { $ScopeOption015 = "" }
+
+                        $router = @()
+                        Try { $router = (Get-DhcpServerv4OptionValue -ComputerName $dhcp.DNSName -OptionId 3 -ScopeID $_.ScopeId -ErrorAction:SilentlyContinue).Value }
+                        Catch { $router = ("") }
+
+                        $ScopeExclusions = @()
+                        Try { $ScopeExclusions = Get-DhcpServerv4ExclusionRange -ComputerName $dhcp.DNSName -ScopeID $_.ScopeId -ErrorAction:SilentlyContinue }
+                        Catch { $ScopeExclusions = ("") }
+
+                        $Exclusions = ""
+                        $z = 0
+                        If ($ScopeExclusions) {
+                            ForEach ($ScopeExclusion in $ScopeExclusions) {
+                                $z++
+                                $ExclusionValue = [String]$ScopeExclusion.StartRange + "-" + [String]$ScopeExclusion.EndRange
+                                if ($z -ge 2) {	$Exclusions = $Exclusions + "," + $ExclusionValue } else { $Exclusions = $ExclusionValue }
+                            }
+                        }
+
+                        if ($router) {
+                            $row.Router = $router[0]
+                        }
+                        else {
+                            $row.Router = ""
+                        }                
+                        $row.Hostname = $dhcp.DNSName
+                        $row.ScopeID = $_.ScopeID
+                        $row.SubnetMask = $_.SubnetMask
+                        $row.Name = $_.Name
+                        $row.State = $_.State
+                        $row.StartRange = $_.StartRange
+                        $row.EndRange = $_.EndRange
+                        $row.LeaseDuration = $_.LeaseDuration
+                        $row.Description = $_.Description
+                        $row.DoGroupId = $DoGroupId
+                        $row.Option160 = $Option160
+                        $row.Option015 = $Option015
+                        $row.ScopeOption015 = $ScopeOption015
+                        $row.Exclusions = $Exclusions
+                        $ScopeDNSList = $null
+                        $ScopeDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
+
+                        If (($null -eq $ScopeDNSList) -and ($null -ne $GlobalDNSList)) {
+                            $row.GDNS1 = $GlobalDNSList[0]
+                            $row.GDNS2 = $GlobalDNSList[1]
+                            $row.GDNS3 = $GlobalDNSList[2]
+                            $row.GDNS4 = $GlobalDNSList[3]
+                            $row.GDNS5 = $GlobalDNSList[4]
+                        }
+                        ElseIf (($null -ne $ScopeDNSList) -and ($null -ne $GlobalDNSList)) {
+                            $row.GDNS1 = $GlobalDNSList[0]
+                            $row.GDNS2 = $GlobalDNSList[1]
+                            $row.GDNS3 = $GlobalDNSList[2]
+                            $row.GDNS4 = $GlobalDNSList[3]
+                            $row.GDNS5 = $GlobalDNSList[4]
+                            $row.DNS1 = $ScopeDNSList[0]
+                            $row.DNS2 = $ScopeDNSList[1]
+                            $row.DNS3 = $ScopeDNSList[2]
+                            $row.DNS4 = $ScopeDNSList[3]
+                            $row.DNS5 = $ScopeDNSList[4]
+                        }
+                        Else {
+                            $row.DNS1 = $ScopeDNSList[0]
+                            $row.DNS2 = $ScopeDNSList[1]
+                            $row.DNS3 = $ScopeDNSList[2]
+                            $row.DNS4 = $ScopeDNSList[3]
+                            $row.DNS5 = $ScopeDNSList[4]
+                        }
+                        $row
+                        $Report += $row
+                    }
+                }
+                Else {            
+                    $row = "" | Select-Object Hostname, ScopeID, SubnetMask, Name, State, StartRange, EndRange, LeaseDuration, Description, DNS1, DNS2, DNS3, DNS4, DNS5, GDNS1, GDNS2, GDNS3, GDNS4, GDNS5, Router, DoGroupId, Option160, option015, Scopeoption015, Exclusions
+                    $row.Hostname = $dhcp.DNSName
+                    $Report += $row
+                }        
             }
-            Else {            
-                $row = "" | Select-Object Hostname, ScopeID, SubnetMask, Name, State, StartRange, EndRange, LeaseDuration, Description, DNS1, DNS2, DNS3, DNS4, DNS5, GDNS1, GDNS2, GDNS3, GDNS4, GDNS5, Router, DoGroupId, Option160, option015, Scopeoption015, Exclusions
-                $row.Hostname = $dhcp.DNSName
-                $Report += $row
-            }        
-        }
-        catch {
-            Write-Log -logtext "Could not get scopes etc details for DHCP Server $($dhcp.DNSName) : $($_.Exception.Message)" -logpath $logpath
+            catch {
+                Write-Log -logtext "Could not get scopes etc details for DHCP Server $($dhcp.DNSName) : $($_.Exception.Message)" -logpath $logpath
+            }
         }
         $message = "Working over DHCP Server $($dhcp.DNSName) related details."
         New-BaloonNotification -title "Information" -message $message
