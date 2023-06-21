@@ -159,7 +159,7 @@ Function Get-ADFSDetails {
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
 
     $i = 0
-    Get-ADComputer -Filter { OperatingSystem -like "*Server*" } -Server $PDC -Credential $Credential |
+    Get-ADComputer -Filter { OperatingSystem -like "*Server*" } -Server $PDC -Credential $Credential -Properties LastLogonDate | Where-Object { $_.LastLogonDate -gt (Get-Date).AddDays(-30) } |
     ForEach-Object {
         $computer = $_.Name
         try {            
@@ -1950,7 +1950,7 @@ function Test-ADHealth {
                 DCDIAG_Advertising  = $null
             }
 
-            if (Test-Connection -ComputerName $DC -Count 1 -Quiet) {
+            if (Test-Connection -ComputerName $DC -Count 2 -Quiet) {
                 $Result.Ping = "OK"
 
                 # Netlogon Service Status
@@ -2039,6 +2039,10 @@ function Test-ADHealth {
 
             $Result | Select-Object DCName, Ping, NTDS, Netlogon, DNS, DCDIAG_Netlogons, DCDIAG_Services, DCDIAG_FSMOCheck, DCDIAG_Replications, DCDIAG_Advertising
         } -ArgumentList $Dcserver
+
+        $message = "Working over AD health checkfor domain controller $dcserver in domain: $DomainName"
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
 
         $Job
     }
