@@ -964,77 +964,18 @@ Function Get-ADDomainDetails {
 
     $dcJobs = @()    
 
-    $initscript = {
-        function Get-SMBv1Status {
-            [CmdletBinding()]
-            Param(
-                [Parameter(ValueFromPipeline = $true, mandatory = $true)]$computername,
-                [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
-            )
+    $scriptBlock1 = ${function:Write-log}
+    $scriptBlock2 = ${function:Get-SMBv1Status}
 
-            $result = @()
-            ForEach ($computer in $computername) {
-                try {
-                    $smbv1ClientEnabled = $null
-                    $smbv1ServerEnabled = $null
-    
-                    switch ((Get-WmiObject -Class Win32_OperatingSystem -ComputerName $Computer).Version) {
-                        { $_ -like "5*" } { $OSversion = "Windows Server 2003" }
-                        { $_ -like "6.0*" } { $OSversion = "Windows Server 2008" }
-                        { $_ -like "6.1*" } { $OSversion = "Windows Server 2008 R2" }
-                        { $_ -like "6.2*" } { $OSversion = "Windows Server 2012" }
-                        { $_ -like "6.3*" } { $OSversion = "Windows Server 2012 R2" }
-                        { $_ -like "10.0.14*" } { $OSversion = "Windows Server 2016" }
-                        { $_ -like "10.0.17*" } { $OSversion = "Windows Server 2019" }
-                        { $_ -like "10.0.19*" -OR $_ -like "10.0.2*" } { $OSversion = "Windows Server 2022" }
-                        default { $OSversion = "Windows Server 2003" }
-                    }
-
-                    $smbv1ClientEnabled = (Get-Service -Name lanmanworkstation -ComputerName $Computer).DependentServices.name -contains "mrxsmb10"
-
-    
-                    If ($OSversion -in ("Windows Server 2003", "Windows Server 2008")) {    
-                        $ErrorActionPreference = "SilentlyContinue"
-                        try {
-                            $smbv1ServerEnabled = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $computer)).OpenSubKey('SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters').GetValue('EnableSMB') -eq 1
-                        }
-                        Catch {
-                            $smbv1ServerEnabled = "Unknown"
-                        }
-                        $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $computer)).Close();
-                    }
-                    else {
-                        try {
-                            $smbv1ServerEnabled = Invoke-Command -ComputerName $Computer -ScriptBlock { (Get-SmbServerConfiguration).EnableSMB1Protocol } -Credential $credential
-                        }
-                        catch {
-                            $smbv1ServerEnabled = "Unknown"
-                        }
-                        if ($null -eq $smbv1ServerEnabled) {
-                            $smbv1ServerEnabled = "Unknown"
-                        }
-                    }
-
-                    $result += [PSCustomObject]@{
-                        ComputerName       = $Computer
-                        OperatingSystem    = $OSversion
-                        SMBv1ClientEnabled = $smbv1ClientEnabled
-                        SMBv1ServerEnabled = $smbv1ServerEnabled
-                    } 
-                }
-                catch {
-                    Write-Log -logtext "Could not get SMBv1 status for $computer : $($_.Exception.Message)" -logpath $logpath
-                }  
-            }
-
-            Return $result
-        }
-    }
+    $initScript = [scriptblock]::Create(@"
+    function Write-log {$scriptBlock1}
+    function Get-SMBv1Status {$scriptBlock2}
+"@)
 
     foreach ($dc in $dcs) {
         $dcJobs += Start-Job -ScriptBlock {
-            param($dc, [pscredential]$Credential, $DomainName, $PDC, $possibleDFL, $sysvolStatus, $FSR2DFSRStatus, $UndesiredFeatures)
-
+            param($dc, [pscredential]$Credential, $DomainName, $PDC, $possibleDFL, $sysvolStatus, $FSR2DFSRStatus, $UndesiredFeatures, $logpath)
+            
             $results = @()
             $NLParameters = $null
             $SSL2Client = $null
@@ -1050,72 +991,89 @@ Function Get-ADDomainDetails {
 
             if (Test-Connection -ComputerName $DC -Count 1 -ErrorAction SilentlyContinue) {
                 try {
-                    $NLParameters = ((([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\')).GetValueNames() | ForEach-Object { [PSCustomObject]@{ Parameter = $_; Value = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\').GetValue($_) } } | ForEach-Object { "$($_.parameter), $($_.value)" }) -join "`n"
+                    $remotereg = [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc.HostName)
                 }
                 catch {
-                    $NLParamters = "Reg not found"                    
-                }
-                try {
-                    $SSL2Client = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL').GetValue('protocols\SSL 2.0\Client')
-                }
-                catch {
-                    $SSL2Client = "Reg not found"                    
-                }
-                try {
-                    $SSL2Server = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL').GetValue('protocols\SSL 2.0\Server')
-                }
-                catch {
-                    $SSL2Server = "Reg not found"                    
-                }
-                try {
-                    $TLS10Client = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL').GetValue('protocols\TLS 1.0\Client')
-                }
-                catch {
-                    $TLS10Client = "Reg not found"                    
-                }
-                try {
-                    $TLS10Server = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL').GetValue('protocols\TLS 1.0\Server')
-                }
-                catch {
-                    $TLS10Server = "Reg not found"                    
-                }
-                try {
-                    $TLS11Client = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL').GetValue('protocols\TLS 1.1\Client')
-                }
-                catch {
-                    $TLS11Client = "Reg not found"                    
-                }
-                try {
-                    $TLS11Server = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL').GetValue('protocols\TLS 1.1\Server')
-                }
-                catch {
-                    $TLS11Server = "Reg not found"                    
-                }
-                try {
-                    $NTPServer = (([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters')).GetValue('NtpServer')
-                }
-                catch {
-                    $NTPServer = "Reg not found"                    
-                }
-                try {
-                    $NTPType = (([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters')).GetValue('Type')
-                }
-                catch {
-                    $NTPType = "Reg not found"                    
+                    Write-Log -logtext "Failed to open remote registry on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                    $results = ("Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found")
                 }
 
-                $results = ($NLParameters, $SSL2Client, $SSL2Server, $TLS10Client, $TLS10Server, $TLS11Client, $TLS11Server, $NTPServer, $NTPType)
-                $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).Close()
+                try {
+                    $NLParameters = (($remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\')).GetValueNames() | ForEach-Object { [PSCustomObject]@{ Parameter = $_; Value = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\').GetValue($_) } } | ForEach-Object { "$($_.parameter), $($_.value)" }) -join "`n"
+                }
+                catch { 
+                    $NLParameters = "Reg not found" 
+                    Write-Log -logtext "Netlogon parameters not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                }
+                try {
+                    $SSL2Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+                }
+                catch { 
+                    $SSL2Client = "Reg not found" 
+                    Write-Log -logtext "SSL 2.0 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                }
+                try {
+                    $SSL2Server = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Server').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+                }
+                catch { 
+                    $SSL2Server = "Reg not found" 
+                    Write-Log -logtext "SSL 2.0 Server reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                }
+                try {
+                    $TLS10Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+                }
+                catch { 
+                    $TLS10Client = "Reg not found" 
+                    Write-Log -logtext "TLS 1.0 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                }
+                try {
+                    $TLS10Server = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+                }
+                catch { 
+                    $TLS10Server = "Reg not found" 
+                    Write-Log -logtext "TLS 1.0 Server reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                }
+                try {
+                    $TLS11Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+                }
+                catch { 
+                    $TLS11Client = "Reg not found" 
+                    Write-Log -logtext "TLS 1.1 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                }
+                try {
+                    $TLS11Server = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+                }
+                catch { 
+                    $TLS11Server = "Reg not found"
+                    Write-Log -logtext "TLS 1.1 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                }
+                try {
+                    $NTPServer = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters').GetValue('NTPServer')
+                }
+                catch { 
+                    $NTPServer = "Reg not found" 
+                    Write-Log -logtext "NTP Server reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                }
+                try {
+                    $NTPType = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters').GetValue('Type')
+                }
+                catch { 
+                    $NTPType = "Reg not found" 
+                    Write-Log -logtext "NTP Server Type reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                }
+
+                $Results = ($NLParameters, $SSL2Client, $SSL2Server, $TLS10Client, $TLS10Server, $TLS11Client, $TLS11Server, $NTPServer, $NTPType)
+                $null = $remotereg.Close()
 
                 try {
-                    $InstalledFeatures = ((Get-WindowsFeature -ComputerName $DC) | Where-Object { $_.Installed -eq 'True' }).Name
+                    $InstalledFeatures = ((Get-WindowsFeature -ComputerName $dc.Hostname) | Where-Object { $_.Installed -eq 'True' }).Name
                 }
                 catch {
                     $InstalledFeatures = "Error"
-                    #Write-Log -logtext "Error retrieving installed features on domain controller $DC : $($_.Exception.Message)" -logpath $logpath
+                    Write-Log -logtext "Error retrieving installed features on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
                 }
                 try {
-                    $SMBStatus = Get-SMBv1Status -computername $dc.Name -Credential $Credential
+                    $SMBStatus = Get-SMBv1Status -computername $dc.Hostname -Credential $Credential
                 }
                 catch {
                     $SMBStatus = "Error"                    
@@ -1130,11 +1088,11 @@ Function Get-ADDomainDetails {
                 Domain                      = $DomainName
                 DomainFunctionLevel         = (Get-ADDomain -Identity $DomainName -Credential $Credential).DomainMode
                 PossibleDomainFunctionLevel = $possibleDFL
-                DCName                      = $dc.Name
+                DCName                      = $dc.Hostname
                 Site                        = $dc.site
                 OSVersion                   = $dc.OperatingSystem
                 IPAddress                   = $dc.IPv4Address
-                FSMORoles                   = (Get-ADDomainController -Identity $dc -Server $PDC -Credential $Credential | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
+                FSMORoles                   = (Get-ADDomainController -Identity $dc.hostname -Server $PDC -Credential $Credential | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
                 Sysvol                      = $sysvolStatus
                 FSR2DFSR                    = $FSR2DFSRStatus
                 LAPS                        = $null -ne (Get-ADObject -LDAPFilter "(name=ms-Mcs-AdmPwd)" -Server $PDC -Credential $Credential)
@@ -1142,20 +1100,21 @@ Function Get-ADDomainDetails {
                 NTPType                     = $Results[8]
                 SMBv1Client                 = $SMBStatus.SMBv1ClientEnabled
                 SMBv1Server                 = $SMBStatus.SMBv1ServerEnabled
-                ADWSStatus                  = (Get-Service ADWS -computername $dc.Name  -ErrorAction SilentlyContinue ).StartType
+                ADWSStatus                  = (Get-Service ADWS -computername $dc.hostName  -ErrorAction SilentlyContinue ).StartType
                 SSL2Client                  = $Results[1]
                 SSL2Server                  = $Results[2]
                 TLS1Client                  = $Results[3]
                 TLS1Server                  = $Results[4]
                 TLS11Client                 = $Results[5]
                 TLS11Server                 = $Results[6]
-                Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc).Status
+                Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc.hostname).Status
                 NetlogonParameter           = $Results[0]
                 ReadOnly                    = $dc.IsReadOnly                
                 UndesiredFeatures           = $UndesiredFeature -join "`n"                
             }
-        } -ArgumentList $dc, $Credential, $DomainName, $PDC, $possibleDFL, $sysvolStatus, $FSR2DFSRStatus, $UndesiredFeatures -InitializationScript $initscript
-        $message = "Working over domain: $DomainName domain controller $($dc.Name) details."
+        } -ArgumentList $dc, $Credential, $DomainName, $PDC, $possibleDFL, $sysvolStatus, $FSR2DFSRStatus, $UndesiredFeatures, $logpath -InitializationScript $initscript
+        
+        $message = "Working over domain: $DomainName domain controller $($dc.hostName) details."
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
     }
