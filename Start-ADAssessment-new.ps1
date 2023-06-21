@@ -1405,7 +1405,7 @@ Function Get-DomainServerDetails {
             DomainName     = $DomainName
             OSName         = $OS.Name
             Count          = $OS.count
-            StaleCount_90d = ($Servers | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.PasswordLastSet -lt $Today.AddDays( - ($InactivePeriod)) }).Name.Count
+            StaleCount_90d = ($Servers | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.PasswordLastSet -gt $Today.AddDays( - ($InactivePeriod)) }).Name.Count
         }        
     }
     return $DomainServerDetails
@@ -1433,7 +1433,7 @@ Function Get-DomainClientDetails {
                 DomainName     = $DomainName
                 OSName         = $OS.Name
                 Count          = $OS.count
-                StaleCount_90d = ($Workstations | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.PasswordLastSet -lt $Today.AddDays( - ($InactivePeriod)) }).Name.Count
+                StaleCount_90d = ($Workstations | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.PasswordLastSet -gt $Today.AddDays( - ($InactivePeriod)) }).Name.Count
             }
         }
     }
