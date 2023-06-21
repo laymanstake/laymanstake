@@ -956,10 +956,10 @@ Function Get-ADDomainDetails {
     foreach ($dc in $dcs) {
         if ( Test-Connection -ComputerName $dc -Count 1 -ErrorAction SilentlyContinue ) { 
             try {
-                $NLParamters = ((([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\')).GetValueNames() | ForEach-Object { [PSCustomObject]@{ Parameter = $_; Value = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\').GetValue($_) } } | ForEach-Object { "$($_.parameter), $($_.value)" }) -join "`n"
+                $NLParameters = ((([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\')).GetValueNames() | ForEach-Object { [PSCustomObject]@{ Parameter = $_; Value = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\').GetValue($_) } } | ForEach-Object { "$($_.parameter), $($_.value)" }) -join "`n"
             }
             catch { 
-                $NLParamters = "Reg not found" 
+                $NLParameters = "Reg not found" 
                 Write-Log -logtext "Netlogon parameters not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
             }
             try {
@@ -1019,7 +1019,7 @@ Function Get-ADDomainDetails {
                 Write-Log -logtext "NTP Server Type reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
             }
 
-            $results = ($NLParamters, $SSL2Client, $SSL2Server, $TLS10Client, $TLS10Server, $TLS11Client, $TLS11Client, $NTPServer, $NTPType)
+            $results = ($NLParameters, $SSL2Client, $SSL2Server, $TLS10Client, $TLS10Server, $TLS11Client, $TLS11Client, $NTPServer, $NTPType)
             $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).Close();
 
             try {
