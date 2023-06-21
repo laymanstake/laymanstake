@@ -1791,7 +1791,7 @@ Function Get-SystemInfo {
     
     Foreach ($s in $servers) {   
         $ErrorActionPreference = "Continue" 
-        if (Test-Connection -ComputerName $.name -count 2 -Quiet -AND Test-WSMan -ComputerName $s.Name -ErrorAction SilentlyContinue) {
+        if ((Test-Connection -ComputerName $s.name -count 2 -Quiet) -AND (Test-WSMan -ComputerName $s.Name -ErrorAction SilentlyContinue)) {
             try {
                 $CPUInfo = Get-CimInstance Win32_Processor -ComputerName $s.Name
                 $PhysicalMemory = Get-CimInstance CIM_PhysicalMemory -ComputerName $s.Name | Measure-Object -Property capacity -Sum | ForEach-Object { [Math]::Round(($_.sum / 1GB), 2) }
