@@ -1791,40 +1791,63 @@ Function Get-SystemInfo {
     
     Foreach ($s in $servers) {   
         $ErrorActionPreference = "Continue" 
-        try {
-            $CPUInfo = Get-CimInstance Win32_Processor -ComputerName $s.Name
-            $PhysicalMemory = Get-CimInstance CIM_PhysicalMemory -ComputerName $s.Name | Measure-Object -Property capacity -Sum | ForEach-Object { [Math]::Round(($_.sum / 1GB), 2) }
-            $NetworkInfo = Get-CimInstance Win32_networkadapter -ComputerName $s.Name | Where-Object { $_.MACAddress -AND $_.PhysicalAdapter -eq $true }
-            $DiskInfo = Get-CimInstance Win32_LogicalDisk -ComputerName $s.Name
-            $SerialNumber = (Get-CimInstance Win32_BIOs -ComputerName $s.Name).SerialNumber
-            $MakeInfo = Get-CimInstance Win32_ComputerSystem -ComputerName $s.Name
-            $NICSpeed = (($NetworkInfo.Speed | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -Join " Gbps,") + " Gbps"
-            $DiskSizes = (($DiskInfo.size | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
-            $DiskFreeSizes = (($DiskInfo.FreeSpace | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
+        if (Test-Connection -ComputerName $.name -count 2 -Quiet -AND Test-WSMan -ComputerName $s.Name -ErrorAction SilentlyContinue) {
+            try {
+                $CPUInfo = Get-CimInstance Win32_Processor -ComputerName $s.Name
+                $PhysicalMemory = Get-CimInstance CIM_PhysicalMemory -ComputerName $s.Name | Measure-Object -Property capacity -Sum | ForEach-Object { [Math]::Round(($_.sum / 1GB), 2) }
+                $NetworkInfo = Get-CimInstance Win32_networkadapter -ComputerName $s.Name | Where-Object { $_.MACAddress -AND $_.PhysicalAdapter -eq $true }
+                $DiskInfo = Get-CimInstance Win32_LogicalDisk -ComputerName $s.Name
+                $SerialNumber = (Get-CimInstance Win32_BIOs -ComputerName $s.Name).SerialNumber
+                $MakeInfo = Get-CimInstance Win32_ComputerSystem -ComputerName $s.Name
+                $NICSpeed = (($NetworkInfo.Speed | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -Join " Gbps,") + " Gbps"
+                $DiskSizes = (($DiskInfo.size | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
+                $DiskFreeSizes = (($DiskInfo.FreeSpace | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
 
+                $infoObject += [PSCustomObject]@{
+                    Name            = $s.Name
+                    IPAddress       = $s.IPV4Address
+                    SerialNumber    = $SerialNumber
+                    Manufacturer    = $MakeInfo.Manufacturer
+                    Model           = $MakeInfo.Model
+                    OperatingSystem = $s.OperatingSystem
+                    Processor       = ($CPUInfo.Name -join ",")
+                    PhysicalCores   = ($CPUInfo.NumberOfCores -join ",")
+                    Logicalcores    = ($CPUInfo.NumberOfLogicalProcessors -join ",")
+                    PhysicalMemory  = $PhysicalMemory
+                    NIC_Count       = ($NetworkInfo | Measure-object).Count
+                    NIC_Name        = ($NetworkInfo.NetConnectionID -join ",")
+                    NIC_MAC         = ($NetworkInfo.MACAddress -join ",")
+                    NIC_Speed       = $NICSpeed
+                    DriveLetter     = ($DiskInfo.DeviceID -join ",")                
+                    DriveSize       = $DiskSizes
+                    DriveFreeSpace  = $DiskFreeSizes
+                }
+            }
+            catch {            
+                Write-Log -logtext "Could not get inventory info from server $($s.Name) : $($_.Exception.Message)" -logpath $logpath
+                Continue
+            }
+        }
+        else {
             $infoObject += [PSCustomObject]@{
                 Name            = $s.Name
                 IPAddress       = $s.IPV4Address
-                SerialNumber    = $SerialNumber
-                Manufacturer    = $MakeInfo.Manufacturer
-                Model           = $MakeInfo.Model
+                SerialNumber    = ""
+                Manufacturer    = ""
+                Model           = ""
                 OperatingSystem = $s.OperatingSystem
-                Processor       = ($CPUInfo.Name -join ",")
-                PhysicalCores   = ($CPUInfo.NumberOfCores -join ",")
-                Logicalcores    = ($CPUInfo.NumberOfLogicalProcessors -join ",")
-                PhysicalMemory  = $PhysicalMemory
-                NIC_Count       = ($NetworkInfo | Measure-object).Count
-                NIC_Name        = ($NetworkInfo.NetConnectionID -join ",")
-                NIC_MAC         = ($NetworkInfo.MACAddress -join ",")
-                NIC_Speed       = $NICSpeed
-                DriveLetter     = ($DiskInfo.DeviceID -join ",")                
-                DriveSize       = $DiskSizes
-                DriveFreeSpace  = $DiskFreeSizes
+                Processor       = ""
+                PhysicalCores   = ""
+                Logicalcores    = ""
+                PhysicalMemory  = ""
+                NIC_Count       = ""
+                NIC_Name        = ""
+                NIC_MAC         = ""
+                NIC_Speed       = ""
+                DriveLetter     = ""
+                DriveSize       = ""
+                DriveFreeSpace  = ""
             }
-        }
-        catch {            
-            Write-Log -logtext "Could not get inventory info from server $($s.Name) : $($_.Exception.Message)" -logpath $logpath
-            Continue
         }
         $message = "Working over domain: $DomainName Domain Controller $($s.Name) inventory details."
         New-BaloonNotification -title "Information" -message $message
