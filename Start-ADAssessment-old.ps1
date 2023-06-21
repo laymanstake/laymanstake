@@ -156,10 +156,10 @@ Function Get-ADFSDetails {
     $ADFSServerDetails = @()
     $AADCServerDetails = @()
 
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
 
     $i = 0
-    Get-ADComputer -Filter { OperatingSystem -like "*Server*" } -Server $PDC -Credential $Credential -Properties LastLogonDate | Where-Object { $_.LastLogonDate -gt (Get-Date).AddDays(-30) } |
+    Get-ADComputer -Filter { OperatingSystem -like "*Server*" } -Server $PDC -Credential $Credential |
     ForEach-Object {
         $computer = $_.Name
         try {            
@@ -252,7 +252,7 @@ Function Get-PKIDetails {
 
     $PKIDetails = New-Object psobject
     
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $ForestName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $ForestName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
     $PKI = Get-ADObject -Filter { objectClass -eq "pKIEnrollmentService" } -Server $PDC -Credential $Credential -SearchBase "CN=Enrollment Services,CN=Public Key Services,CN=Services,$((Get-ADRootDSE).ConfigurationNamingContext)"  -Properties DisplayName, DnsHostName | Select-Object DisplayName, DnsHostName, @{l = "OperatingSystem"; e = { (Get-ADComputer ($_.DNShostname -replace ".$ForestName") -Properties OperatingSystem -server $PDC -Credential $Credential).OperatingSystem } }, @{l = "IPv4Address"; e = { ([System.Net.Dns]::GetHostAddresses($_.DnsHostName) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n" } }
 
     If ($PKI) {        
@@ -281,7 +281,7 @@ Function Get-ADDNSDetails {
     )
 
     $DNSServerDetails = @()
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
     
     try {
         $DNSServers = (Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { Get-WmiObject  -Class Win32_serverfeature  -ComputerName $_.Name -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "DNS Server" } } | Select-Object Name, IPv4Address
@@ -335,7 +335,7 @@ Function Get-ADDNSZoneDetails {
     )
 
     $DNSServerZoneDetails = @()
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
     
     $DNSZones = Get-DnsServerZone -ComputerName $PDC | Where-Object { -Not $_.IsReverseLookupZone } | Select-Object DistinguishedName, ZoneName, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, MasterServers, SecureSecondaries, SecondaryServers
 
@@ -386,7 +386,7 @@ Function Get-ADGroupMemberRecursive {
     )
     
     $Domain = (Get-ADDomain -Identity $DomainName -Credential $Credential)
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = $Domain.PDCEmulator
     try {
         $members = (Get-ADGroup -Identity $GroupName -Server $PDC -Credential $Credential -Properties Members).members
     }
@@ -416,7 +416,7 @@ Function Get-AdminCountDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
     
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
     $protectedGroups = (Get-ADGroup -Filter * -Server $PDC -Credential $Credential -properties adminCount | Where-Object { $_.adminCount -eq 1 }).Name
 
     $ProtectedUsers = ($protectedGroups | ForEach-Object { Get-ADGroupMemberRecursive -GroupName $_ -DomainName $DomainName -Credential $Credential } | Sort-Object Name -Unique).Name
@@ -441,7 +441,7 @@ Function Get-ADDHCPDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
-    $PDC = (Get-ADDomain -Current LocalComputer).PDCEmulator    
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
     $configPartition = (Get-ADforest).PartitionsContainer.Replace("CN=Partitions,", "")
     $AllDHCPServers = (Get-ADObject -SearchBase $configPartition -Filter "objectclass -eq 'dhcpclass' -AND Name -ne 'dhcproot'" -Server $PDC -Credential $Credential).Name
     $DHCPDetails = @()
@@ -499,7 +499,7 @@ Function Get-DHCPInventory {
     $Reservations = @()
 
     foreach ($dhcp in $DHCPs) {
-        if (Test-Connection -ComputerName $dhcp.DNSName -count 2) { 
+        if (Test-Connection -ComputerName $dhcp.DnsName -count 2) {
             try {
                 $scopes = $null
                 $scopes = (Get-DhcpServerv4Scope -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue)
@@ -617,11 +617,6 @@ Function Get-DHCPInventory {
                 Write-Log -logtext "Could not get scopes etc details for DHCP Server $($dhcp.DNSName) : $($_.Exception.Message)" -logpath $logpath
             }
         }
-        else {
-            $message = "The DHCP Server $($dhcp.DNSName) not reachable, would be skippedl."
-            New-BaloonNotification -title "Information" -message $message
-            Write-Log -logtext $message -logpath $logpath    
-        }
         $message = "Working over DHCP Server $($dhcp.DNSName) related details."
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
@@ -644,7 +639,7 @@ Function Get-EmptyOUDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
 
     $AllOUs = Get-ADOrganizationalUnit -Filter * -Server $PDC -Credential $Credential -Properties CanonicalName
     $EmptyOUs = ($AllOUs | Where-Object { -not ( Get-ADObject -Filter * -SearchBase $_.Distinguishedname -SearchScope OneLevel -ResultSetSize 1 -Server $PDC -Credential $Credential) }).CanonicalName
@@ -669,7 +664,7 @@ Function Get-ADObjectsToClean {
 
     $ObjectsToClean = @()
     $Domain = Get-ADDomain -Identity $DomainName -Credential $Credential
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
     $orphanedObj = Get-ADObject -Filter * -SearchBase "cn=LostAndFound,$($Domain.DistinguishedName)" -SearchScope OneLevel -Server $PDC -Credential $Credential
     $lingConfReplObj = Get-ADObject -LDAPFilter "(cn=*\0ACNF:*)" -SearchBase $Domain.DistinguishedName -SearchScope SubTree -Server $PDC -Credential $Credential
 
@@ -731,7 +726,7 @@ Function Get-GPOInventory {
     )
     
     $GPOSummary = @()
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
     $GPOs = Get-GPO -All -Domain $DomainName
     
     $GPOs | ForEach-Object {
@@ -774,7 +769,7 @@ Function Get-ADPasswordPolicy {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
-    $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
     $PwdPolicy = Get-ADDefaultDomainPasswordPolicy -Server $PDC -Credential $Credential
 
     $DefaultPasswordPolicy = [PSCustomObject]@{
@@ -801,7 +796,7 @@ Function Get-FineGrainedPasswordPolicy {
     )
 
     $FGPwdPolicyDetails = @()
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
     $DomainFL = (Get-ADDomain -Identity $DomainName -Credential $Credential).DomainMode
     
     if ( $DomainFL -in ("Windows2008Domain", "Windows2008R2Domain", "Windows2012Domain", "Windows2012R2Domain", "Windows2016Domain")) {		
@@ -904,11 +899,8 @@ function Get-SMBv1Status {
 Function Get-ADDomainDetails {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]
-        $DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)]
-        [pscredential]
-        $Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
     $DomainDetails = @()
@@ -941,7 +933,7 @@ Function Get-ADDomainDetails {
         default { $possibleDFL += "Windows Server 2003" }
     }
     
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
 
     if ((Get-ADObject -Server $PDC -Filter { name -like "SYSVOL*" } -Properties replPropertyMetaData -Credential $Credential).ReplPropertyMetadata.count -gt 0) {
         $sysvolStatus = "DFSR"
@@ -961,138 +953,105 @@ Function Get-ADDomainDetails {
         Write-Log -logtext "FSR2DFSR status - WinRM access denied on $PDC : $($_.Exception.Message)" -logpath $logpath
     }
 
-
-    $dcJobs = @()    
-
-    $scriptBlock1 = ${function:Write-log}
-    $scriptBlock2 = ${function:Get-SMBv1Status}
-
-    $initScript = [scriptblock]::Create(@"
-    function Write-log {$scriptBlock1}
-    function Get-SMBv1Status {$scriptBlock2}
-"@)
-
     foreach ($dc in $dcs) {
-        $dcJobs += Start-Job -ScriptBlock {
-            param($dc, [pscredential]$Credential, $DomainName, $PDC, $possibleDFL, $sysvolStatus, $FSR2DFSRStatus, $UndesiredFeatures, $logpath)
-            
-            $results = @()
-            $NLParameters = $null
-            $SSL2Client = $null
-            $SSL2Server = $null
-            $TLS10Client = $null
-            $TLS10Server = $null
-            $TLS11Client = $null
-            $TLS11Server = $null
-            $NTPServer = $null
-            $NTPType = $null
-            $InstalledFeatures = $null
-            $SMBStatus = $null
-
-            if (Test-Connection -ComputerName $DC -Count 1 -ErrorAction SilentlyContinue) {
-                try {
-                    $remotereg = [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc.HostName)
-                }
-                catch {
-                    Write-Log -logtext "Failed to open remote registry on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                    $results = ("Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found")
-                }
-
-                try {
-                    $NLParameters = (($remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\')).GetValueNames() | ForEach-Object { [PSCustomObject]@{ Parameter = $_; Value = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\').GetValue($_) } } | ForEach-Object { "$($_.parameter), $($_.value)" }) -join "`n"
-                }
-                catch { 
-                    $NLParameters = "Reg not found" 
-                    Write-Log -logtext "Netlogon parameters not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $SSL2Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
-                }
-                catch { 
-                    $SSL2Client = "Reg not found" 
-                    Write-Log -logtext "SSL 2.0 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $SSL2Server = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Server').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
-                }
-                catch { 
-                    $SSL2Server = "Reg not found" 
-                    Write-Log -logtext "SSL 2.0 Server reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $TLS10Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
-                }
-                catch { 
-                    $TLS10Client = "Reg not found" 
-                    Write-Log -logtext "TLS 1.0 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $TLS10Server = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
-                }
-                catch { 
-                    $TLS10Server = "Reg not found" 
-                    Write-Log -logtext "TLS 1.0 Server reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $TLS11Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
-                }
-                catch { 
-                    $TLS11Client = "Reg not found" 
-                    Write-Log -logtext "TLS 1.1 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $TLS11Server = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
-                }
-                catch { 
-                    $TLS11Server = "Reg not found"
-                    Write-Log -logtext "TLS 1.1 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $NTPServer = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters').GetValue('NTPServer')
-                }
-                catch { 
-                    $NTPServer = "Reg not found" 
-                    Write-Log -logtext "NTP Server reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $NTPType = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters').GetValue('Type')
-                }
-                catch { 
-                    $NTPType = "Reg not found" 
-                    Write-Log -logtext "NTP Server Type reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-
-                $Results = ($NLParameters, $SSL2Client, $SSL2Server, $TLS10Client, $TLS10Server, $TLS11Client, $TLS11Server, $NTPServer, $NTPType)
-                $null = $remotereg.Close()
-
-                try {
-                    $InstalledFeatures = ((Get-WindowsFeature -ComputerName $dc.Hostname) | Where-Object { $_.Installed -eq 'True' }).Name
-                }
-                catch {
-                    $InstalledFeatures = "Error"
-                    Write-Log -logtext "Error retrieving installed features on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $SMBStatus = Get-SMBv1Status -computername $dc.Hostname -Credential $Credential
-                }
-                catch {
-                    $SMBStatus = "Error"                    
-                }
+        if ( Test-Connection -ComputerName $dc -Count 1 -ErrorAction SilentlyContinue ) { 
+            try {
+                $remotereg = [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)
+            }
+            catch {
+                Write-Log -logtext "Failed to open remote registry on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+                $results = ("Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found")
             }
 
-            if ($InstalledFeatures -ne "Error" -AND $null -ne $InstalledFeatures) {
+            try {
+                $NLParameters = (($remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\')).GetValueNames() | ForEach-Object { [PSCustomObject]@{ Parameter = $_; Value = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\').GetValue($_) } } | ForEach-Object { "$($_.parameter), $($_.value)" }) -join "`n"
+            }
+            catch { 
+                $NLParameters = "Reg not found" 
+                Write-Log -logtext "Netlogon parameters not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
+            try {
+                $SSL2Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+            }
+            catch { 
+                $SSL2Client = "Reg not found" 
+                Write-Log -logtext "SSL 2.0 Client reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
+            try {
+                $SSL2Server = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Server').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+            }
+            catch { 
+                $SSL2Server = "Reg not found" 
+                Write-Log -logtext "SSL 2.0 Server reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
+            try {
+                $TLS10Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+            }
+            catch { 
+                $TLS10Client = "Reg not found" 
+                Write-Log -logtext "TLS 1.0 Client reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
+            try {
+                $TLS10Server = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+            }
+            catch { 
+                $TLS10Server = "Reg not found" 
+                Write-Log -logtext "TLS 1.0 Server reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
+            try {
+                $TLS11Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+            }
+            catch { 
+                $TLS11Client = "Reg not found" 
+                Write-Log -logtext "TLS 1.1 Client reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
+            try {
+                $TLS11Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server').GetValue('Enabled') -eq 1 -AND ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+            }
+            catch { 
+                $TLS11Client = "Reg not found"
+                Write-Log -logtext "TLS 1.1 Client reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
+            try {
+                $NTPServer = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters').GetValue('NTPServer')
+            }
+            catch { 
+                $NTPServer = "Reg not found" 
+                Write-Log -logtext "NTP Server reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
+            try {
+                $NTPType = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters').GetValue('Type')
+            }
+            catch { 
+                $NTPType = "Reg not found" 
+                Write-Log -logtext "NTP Server Type reg key not found on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
+
+            $results = ($NLParameters, $SSL2Client, $SSL2Server, $TLS10Client, $TLS10Server, $TLS11Client, $TLS11Client, $NTPServer, $NTPType)
+            $null = $remotereg.Close()
+
+            try {
+                $InstalledFeatures = (Get-WindowsFeature -ComputerName $dc -Credential $Credential | Where-Object Installed).Name
+            }
+            catch {
+                Write-Log -logtext "Failed to get installed features on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
+            }
+
+            if ($InstalledFeatures) {
                 $UndesiredFeature = (Compare-Object -ReferenceObject $UndesiredFeatures -DifferenceObject $InstalledFeatures  -IncludeEqual | Where-Object { $_.SideIndicator -eq '==' } | Select-Object -ExpandProperty InputObject)
             }
 
-            [PSCustomObject]@{
-                Domain                      = $DomainName
+            $SMBStatus = Get-SMBv1Status -computername $dc.Name -Credential $Credential            
+
+            $DomainDetails += [PSCustomObject]@{
+                Domain                      = $domain
                 DomainFunctionLevel         = (Get-ADDomain -Identity $DomainName -Credential $Credential).DomainMode
                 PossibleDomainFunctionLevel = $possibleDFL
-                DCName                      = $dc.Hostname
+                DCName                      = $dc.Name
                 Site                        = $dc.site
                 OSVersion                   = $dc.OperatingSystem
                 IPAddress                   = $dc.IPv4Address
-                FSMORoles                   = (Get-ADDomainController -Identity $dc.hostname -Server $PDC -Credential $Credential | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
+                FSMORoles                   = (Get-ADDomainController -Identity $dc -Server $PDC -Credential $Credential | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
                 Sysvol                      = $sysvolStatus
                 FSR2DFSR                    = $FSR2DFSRStatus
                 LAPS                        = $null -ne (Get-ADObject -LDAPFilter "(name=ms-Mcs-AdmPwd)" -Server $PDC -Credential $Credential)
@@ -1100,35 +1059,26 @@ Function Get-ADDomainDetails {
                 NTPType                     = $Results[8]
                 SMBv1Client                 = $SMBStatus.SMBv1ClientEnabled
                 SMBv1Server                 = $SMBStatus.SMBv1ServerEnabled
-                ADWSStatus                  = (Get-Service ADWS -computername $dc.hostName  -ErrorAction SilentlyContinue ).StartType
+                ADWSStatus                  = (Get-Service ADWS -computername $dc.Name  -ErrorAction SilentlyContinue ).StartType
                 SSL2Client                  = $Results[1]
                 SSL2Server                  = $Results[2]
                 TLS1Client                  = $Results[3]
                 TLS1Server                  = $Results[4]
                 TLS11Client                 = $Results[5]
                 TLS11Server                 = $Results[6]
-                Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc.hostname).Status
+                Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc).Status
                 NetlogonParameter           = $Results[0]
                 ReadOnly                    = $dc.IsReadOnly                
-                UndesiredFeatures           = $UndesiredFeature -join "`n"                
+                UndesiredFeatures           = $UndesiredFeature -join "`n"
             }
-        } -ArgumentList $dc, $Credential, $DomainName, $PDC, $possibleDFL, $sysvolStatus, $FSR2DFSRStatus, $UndesiredFeatures, $logpath -InitializationScript $initscript
-        
-        $message = "Working over domain: $DomainName domain controller $($dc.hostName) details."
-        New-BaloonNotification -title "Information" -message $message
-        Write-Log -logtext $message -logpath $logpath
+        }
     }
 
-    $output = $dcJobs | Wait-Job | Receive-Job
+    $message = "Working over domain: $DomainName domain controller $($dc.Name) details."
+    New-BaloonNotification -title "Information" -message $message
+    Write-Log -logtext $message -logpath $logpath
 
-    foreach ($result in $output) {
-        $DomainDetails += $result
-    }
-    
-    $DomainDetails = $DomainDetails | Sort-Object -Property Domain, DCName | Select-Object Domain, DomainFunctionLevel, PossibleDomainFunctionLevel, DCName, Site, OSVersion, IPAddress, FSMORoles, Sysvol, FSR2DFSR, LAPS, NTPServer, NTPType, SMBv1Client, SMBv1Server, ADWSStatus, SSL2Client, SSL2Server, TLS1Client, TLS1Server, TLS11Client, TLS11Server, Firewall, NetlogonParameter, ReadOnly, UndesiredFeatures
-
-    # Return the domain details
-    $DomainDetails
+    return $DomainDetails    
 }
 
 # This function provides detailed information about Active Directory sites, including site names, subnet assignments, and site links.
@@ -1140,7 +1090,7 @@ Function Get-ADSiteDetails {
     )
 
     $SiteDetails = @()
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
     try {
         $sites = Get-ADReplicationSite -Filter * -Server $PDC -Credential $Credential -Properties WhenCreated, WhenChanged, ProtectedFromAccidentalDeletion, Subnets    
     }
@@ -1218,7 +1168,7 @@ Function Get-PrivGroupDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential        
     )
 
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
     $domainSID = (Get-ADDomain $DomainName -server $PDC -Credential $Credential -ErrorAction SilentlyContinue).domainSID.Value
     $PrivGroupSIDs = @(@("Domain Admins", ($domainSID + "-512")), 
         @("Domain Guests", ($domainSID + "-514")), 
@@ -1253,7 +1203,7 @@ Function Get-ADGroupDetails {
     )
 
     $GroupDetails = @()    
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
 
     $AllGroups = Get-ADGroup -Filter { GroupCategory -eq "Security" } -Properties GroupScope -Server $PDC -Credential $Credential
 
@@ -1295,7 +1245,7 @@ Function Get-ADUserDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
     )
 
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
 
     $AllUsers = Get-ADUser -Filter * -Server $PDC -Properties SamAccountName, Enabled, whenCreated, PasswordLastSet, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, LastLogonTimestamp, LockedOut | Select-object SamAccountName, Enabled, whenCreated, PasswordLastSet, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, @{l = "Lastlogon"; e = { [DateTime]::FromFileTime($_.LastLogonTimestamp) } }, LockedOut    
 
@@ -1323,7 +1273,7 @@ Function Get-BuiltInUserDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
     )
 
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
     $domainSID = (Get-ADDomain $DomainName -server $PDC -Credential $Credential -ErrorAction SilentlyContinue).domainSID.Value
     $BuiltInUserSIDs = @(@("Administrator", ($domainSID + "-500")), @("Guest", ($domainSID + "-501")), @("krbtgt", ($domainSID + "-502")))
 
@@ -1358,7 +1308,7 @@ Function Get-OrphanedFSP {
 
     $orphanedFSPs = @()
     $Domain = Get-ADDomain -Identity $DomainName -Credential $Credential
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = $Domain.PDCEmulator
     $AllFSPs = Get-ADObject -Filter { ObjectClass -eq 'ForeignSecurityPrincipal' } -Server $PDC -Credential $Credential
     
     <# NT AUTHORITY\INTERACTIVE, NT AUTHORITY\Authenticated Users, NT AUTHORITY\IUSR, NT AUTHORITY\ENTERPRISE DOMAIN CONTROLLERS #>
@@ -1395,7 +1345,7 @@ Function Get-DomainServerDetails {
     $DomainServerDetails = @()
     $Today = Get-Date
     $InactivePeriod = 90
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
     
     $Servers = Get-ADComputer -Filter { OperatingSystem -Like "*Server*" } -Properties OperatingSystem, PasswordLastSet -Server $PDC -Credential $Credential
     $OSs = $Servers | Group-Object OperatingSystem | Select-Object Name, Count
@@ -1405,7 +1355,7 @@ Function Get-DomainServerDetails {
             DomainName     = $DomainName
             OSName         = $OS.Name
             Count          = $OS.count
-            StaleCount_90d = ($Servers | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.PasswordLastSet -gt $Today.AddDays( - ($InactivePeriod)) }).Name.Count
+            StaleCount_90d = ($Servers | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.PasswordLastSet -lt $Today.AddDays( - ($InactivePeriod)) }).Name.Count
         }        
     }
     return $DomainServerDetails
@@ -1422,7 +1372,7 @@ Function Get-DomainClientDetails {
     $DomainClientDetails = @()
     $Today = Get-Date
     $InactivePeriod = 90
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
 
     $Workstations = Get-ADComputer -Filter { OperatingSystem -Notlike "*Server*" } -Properties OperatingSystem, PasswordLastSet -Server $PDC -Credential $Credential
     $OSs = $Workstations | Group-Object OperatingSystem | Select-Object Name, Count
@@ -1433,7 +1383,7 @@ Function Get-DomainClientDetails {
                 DomainName     = $DomainName
                 OSName         = $OS.Name
                 Count          = $OS.count
-                StaleCount_90d = ($Workstations | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.PasswordLastSet -gt $Today.AddDays( - ($InactivePeriod)) }).Name.Count
+                StaleCount_90d = ($Workstations | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.PasswordLastSet -lt $Today.AddDays( - ($InactivePeriod)) }).Name.Count
             }
         }
     }
@@ -1451,7 +1401,7 @@ Function Start-SecurityCheck {
 
     $SecuritySettings = @()
     $DCs = (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).hostname
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
 
     ForEach ($DC in $DCs) {
         if (Test-Connection -ComputerName $Dc -Count 4 -Quiet) {
@@ -1633,7 +1583,7 @@ function Get-UnusedNetlogonScripts {
 
     $unusedScripts = @()
     $referencedScripts = @()
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
     $netlogonPath = "\\$DomainName\netlogon"
     try {
         $scriptFiles = Get-ChildItem -Path $netlogonPath -File -Recurse | Select-Object -ExpandProperty FullName
@@ -1782,72 +1732,49 @@ Function Get-SystemInfo {
         [Parameter(ValueFromPipeline = $true, Mandatory = $true)]$Servers
     )
 
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait |  sort-object Responsetime | select-Object Address -first 1).Address
 
-    $servers = $servers | ForEach-Object { Get-ADComputer -Identity $_.split(".")[0] -Server $PDC -properties Name, IPv4Address, OperatingSystem } | select-object Name, IPv4Address, OperatingSystem
+    $servers = $servers | ForEach-Object { Get-ADComputer -Identity $_ -Server $PDC -properties Name, IPv4Address, OperatingSystem } | select-object Name, IPv4Address, OperatingSystem
 
     #Run the commands for each server in the list
     $infoObject = @()
     
     Foreach ($s in $servers) {   
         $ErrorActionPreference = "Continue" 
-        if ((Test-Connection -ComputerName $s.name -count 2 -Quiet) -AND (Test-WSMan -ComputerName $s.Name -ErrorAction SilentlyContinue)) {
-            try {
-                $CPUInfo = Get-CimInstance Win32_Processor -ComputerName $s.Name
-                $PhysicalMemory = Get-CimInstance CIM_PhysicalMemory -ComputerName $s.Name | Measure-Object -Property capacity -Sum | ForEach-Object { [Math]::Round(($_.sum / 1GB), 2) }
-                $NetworkInfo = Get-CimInstance Win32_networkadapter -ComputerName $s.Name | Where-Object { $_.MACAddress -AND $_.PhysicalAdapter -eq $true }
-                $DiskInfo = Get-CimInstance Win32_LogicalDisk -ComputerName $s.Name
-                $SerialNumber = (Get-CimInstance Win32_BIOs -ComputerName $s.Name).SerialNumber
-                $MakeInfo = Get-CimInstance Win32_ComputerSystem -ComputerName $s.Name
-                $NICSpeed = (($NetworkInfo.Speed | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -Join " Gbps,") + " Gbps"
-                $DiskSizes = (($DiskInfo.size | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
-                $DiskFreeSizes = (($DiskInfo.FreeSpace | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
+        try {
+            $CPUInfo = Get-CimInstance Win32_Processor -ComputerName $s.Name
+            $PhysicalMemory = Get-CimInstance CIM_PhysicalMemory -ComputerName $s.Name | Measure-Object -Property capacity -Sum | ForEach-Object { [Math]::Round(($_.sum / 1GB), 2) }
+            $NetworkInfo = Get-CimInstance Win32_networkadapter -ComputerName $s.Name | Where-Object { $_.MACAddress -AND $_.PhysicalAdapter -eq $true }
+            $DiskInfo = Get-CimInstance Win32_LogicalDisk -ComputerName $s.Name
+            $SerialNumber = (Get-CimInstance Win32_BIOs -ComputerName $s.Name).SerialNumber
+            $MakeInfo = Get-CimInstance Win32_ComputerSystem -ComputerName $s.Name
+            $NICSpeed = (($NetworkInfo.Speed | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -Join " Gbps,") + " Gbps"
+            $DiskSizes = (($DiskInfo.size | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
+            $DiskFreeSizes = (($DiskInfo.FreeSpace | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
 
-                $infoObject += [PSCustomObject]@{
-                    Name            = $s.Name
-                    IPAddress       = $s.IPV4Address
-                    SerialNumber    = $SerialNumber
-                    Manufacturer    = $MakeInfo.Manufacturer
-                    Model           = $MakeInfo.Model
-                    OperatingSystem = $s.OperatingSystem
-                    Processor       = ($CPUInfo.Name -join ",")
-                    PhysicalCores   = ($CPUInfo.NumberOfCores -join ",")
-                    Logicalcores    = ($CPUInfo.NumberOfLogicalProcessors -join ",")
-                    PhysicalMemory  = $PhysicalMemory
-                    NIC_Count       = ($NetworkInfo | Measure-object).Count
-                    NIC_Name        = ($NetworkInfo.NetConnectionID -join ",")
-                    NIC_MAC         = ($NetworkInfo.MACAddress -join ",")
-                    NIC_Speed       = $NICSpeed
-                    DriveLetter     = ($DiskInfo.DeviceID -join ",")                
-                    DriveSize       = $DiskSizes
-                    DriveFreeSpace  = $DiskFreeSizes
-                }
-            }
-            catch {            
-                Write-Log -logtext "Could not get inventory info from server $($s.Name) : $($_.Exception.Message)" -logpath $logpath
-                Continue
-            }
-        }
-        else {
             $infoObject += [PSCustomObject]@{
                 Name            = $s.Name
                 IPAddress       = $s.IPV4Address
-                SerialNumber    = ""
-                Manufacturer    = ""
-                Model           = ""
+                SerialNumber    = $SerialNumber
+                Manufacturer    = $MakeInfo.Manufacturer
+                Model           = $MakeInfo.Model
                 OperatingSystem = $s.OperatingSystem
-                Processor       = ""
-                PhysicalCores   = ""
-                Logicalcores    = ""
-                PhysicalMemory  = ""
-                NIC_Count       = ""
-                NIC_Name        = ""
-                NIC_MAC         = ""
-                NIC_Speed       = ""
-                DriveLetter     = ""
-                DriveSize       = ""
-                DriveFreeSpace  = ""
+                Processor       = ($CPUInfo.Name -join ",")
+                PhysicalCores   = ($CPUInfo.NumberOfCores -join ",")
+                Logicalcores    = ($CPUInfo.NumberOfLogicalProcessors -join ",")
+                PhysicalMemory  = $PhysicalMemory
+                NIC_Count       = ($NetworkInfo | Measure-object).Count
+                NIC_Name        = ($NetworkInfo.NetConnectionID -join ",")
+                NIC_MAC         = ($NetworkInfo.MACAddress -join ",")
+                NIC_Speed       = $NICSpeed
+                DriveLetter     = ($DiskInfo.DeviceID -join ",")                
+                DriveSize       = $DiskSizes
+                DriveFreeSpace  = $DiskFreeSizes
             }
+        }
+        catch {            
+            Write-Log -logtext "Could not get inventory info from server $($s.Name) : $($_.Exception.Message)" -logpath $logpath
+            Continue
         }
         $message = "Working over domain: $DomainName Domain Controller $($s.Name) inventory details."
         New-BaloonNotification -title "Information" -message $message
@@ -1934,7 +1861,7 @@ function New-BaloonNotification {
         register-objectevent $tip BalloonTipClicked BalloonClicked_event -Action { $script.Invoke() } | Out-Null
     }
     catch {}
-    $tip.ShowBalloonTip(10000) # Even if we set it for 1000 milliseconds, it usually follows OS minimum 10 seconds
+    $tip.ShowBalloonTip(15000) # Even if we set it for 1000 milliseconds, it usually follows OS minimum 10 seconds
     Start-Sleep -s 1
     
     $tip.Dispose() # Important to dispose otherwise the icon stays in notifications till reboot
@@ -1945,145 +1872,137 @@ function New-BaloonNotification {
 function Test-ADHealth {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]
-        $DomainName,
-
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)]
-        [pscredential]
-        $Credential
-    )
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+    )    
 
     $Report = @()
     $dcs = Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential
 
-    $jobs = foreach ($Dcserver in $dcs.HostName) {
-        $Job = Start-Job -ScriptBlock {
-            param($DC)
-
-            $Result = [pscustomobject] @{
-                DCName              = $DC
-                Ping                = $null
-                Netlogon            = $null
-                NTDS                = $null
-                DNS                 = $null
-                DCDIAG_Netlogons    = $null
-                DCDIAG_Services     = $null
-                DCDIAG_Replications = $null
-                DCDIAG_FSMOCheck    = $null
-                DCDIAG_Advertising  = $null
-            }
-
-            if (Test-Connection -ComputerName $DC -Count 2 -Quiet) {
-                $Result.Ping = "OK"
+    #foreach domain controller
+    foreach ($Dcserver in $dcs.hostname) {        
+        if (Test-Connection -ComputerName $Dcserver -Count 4 -Quiet) {
+            try {                
+                $setping = "OK"
 
                 # Netlogon Service Status
-                $DcNetlogon = Get-Service -ComputerName $DC -Name "Netlogon" -ErrorAction SilentlyContinue
+                $DcNetlogon = Get-Service -ComputerName $Dcserver -Name "Netlogon" -ErrorAction SilentlyContinue
                 if ($DcNetlogon.Status -eq "Running") {
-                    $Result.Netlogon = "OK"
+                    $setnetlogon = "ok"
                 }
                 else {
-                    $Result.Netlogon = $DcNetlogon.Status
+                    $setnetlogon = "$DcNetlogon.status"
                 }
 
-                # NTDS Service Status
-                $dcntds = Get-Service -ComputerName $DC -Name "NTDS" -ErrorAction SilentlyContinue
-                if ($dcntds.Status -eq "Running") {
-                    $Result.NTDS = "OK"
+                #NTDS Service Status
+                $dcntds = Get-Service -ComputerName $Dcserver -Name "NTDS" -ErrorAction SilentlyContinue
+                if ($dcntds.Status -eq "running") {
+                    $setntds = "ok"
                 }
                 else {
-                    $Result.NTDS = $dcntds.Status
+                    $setntds = "$dcntds.status"
                 }
 
-                # DNS Service Status
-                $dcdns = Get-Service -ComputerName $DC -Name "DNS" -ErrorAction SilentlyContinue
-                if ($dcdns.Status -eq "Running") {
-                    $Result.DNS = "OK"
+                #DNS Service Status
+                $dcdns = Get-Service -ComputerName $Dcserver -Name "DNS" -ea SilentlyContinue
+                if ($dcdns.Status -eq "running") {
+                    $setdcdns = "ok"
                 }
                 else {
-                    $Result.DNS = $dcdns.Status
+                    $setdcdns = "$dcdns.Status"
                 }
 
-                # Dcdiag netlogons "Checking now"
-                $dcdiagnetlogon = dcdiag /test:netlogons /s:$DC
-                if ($dcdiagnetlogon -match "passed test NetLogons") {
-                    $Result.DCDIAG_Netlogons = "OK"
+                #Dcdiag netlogons "Checking now"
+                $dcdiagnetlogon = dcdiag /test:netlogons /s:$dcserver
+                if ($dcdiagnetlogon -match "passed test NetLogons")	{
+                    $setdcdiagnetlogon = "ok"
                 }
                 else {
-                    $Result.DCDIAG_Netlogons = (($dcdiagnetlogon | Select-String "Error", "warning" | ForEach-Object { $_.Line.Trim() }) -join "`n") + "`n`nRun dcdiag /test:netlogons /s:$DC"
+                    $setdcdiagnetlogon = (($dcdiagnetlogon | select-string "Error", "warning" | ForEach-Object { $_.line.trim() }) -join "`n") + "`n`nRun dcdiag /test:netlogons /s:$dcserver"
                 }
 
-                # Dcdiag services check
-                $dcdiagservices = dcdiag /test:services /s:$DC
+                #Dcdiag services check
+                $dcdiagservices = dcdiag /test:services /s:$dcserver
                 if ($dcdiagservices -match "passed test services") {
-                    $Result.DCDIAG_Services = "OK"
+                    $setdcdiagservices = "ok"
                 }
                 else {
-                    $Result.DCDIAG_Services = (($dcdiagservices | Select-String "Error", "warning" | ForEach-Object { $_.Line.Trim() }) -join "`n") + "`n`nRun dcdiag /test:services /s:$DC"
+                    $setdcdiagservices = (($dcdiagservices  | select-string "Error", "warning" | ForEach-Object { $_.line.trim() }) -join "`n") + "`n`nRun dcdiag /test:services /s:$dcserver"
                 }
 
-                # Dcdiag Replication Check
-                $dcdiagreplications = dcdiag /test:Replications /s:$DC
+                #Dcdiag Replication Check
+                $dcdiagreplications = dcdiag /test:Replications /s:$dcserver
                 if ($dcdiagreplications -match "passed test Replications") {
-                    $Result.DCDIAG_Replications = "OK"
+                    $setdcdiagreplications = "ok"
                 }
                 else {
-                    $Result.DCDIAG_Replications = (($dcdiagreplications | Select-String "Error", "warning" | ForEach-Object { $_.Line.Trim() }) -join "`n") + "`n`nRun dcdiag /test:Replications /s:$DC"
+                    $setdcdiagreplications = (($dcdiagreplications  | select-string "Error", "warning" | ForEach-Object { $_.line.trim() }) -join "`n") + "`n`nRun dcdiag /test:Replications /s:$dcserver"
                 }
 
-                # Dcdiag FSMOCheck Check
-                $dcdiagFsmoCheck = dcdiag /test:FSMOCheck /s:$DC
+                #Dcdiag FSMOCheck Check
+                $dcdiagFsmoCheck = dcdiag /test:FSMOCheck /s:$dcserver
                 if ($dcdiagFsmoCheck -match "passed test FsmoCheck") {
-                    $Result.DCDIAG_FSMOCheck = "OK"
+                    $setdcdiagFsmoCheck = "ok"
                 }
                 else {
-                    $Result.DCDIAG_FSMOCheck = (($dcdiagFsmoCheck | Select-String "Error", "warning" | ForEach-Object { $_.Line.Trim() }) -join "`n") + "`n`nRun dcdiag /test:FSMOCheck /s:$DC"
+                    $setdcdiagFsmoCheck = (($dcdiagFsmoCheck | select-string "Error", "warning" | ForEach-Object { $_.line.trim() }) -join "`n") + "`n`nRun dcdiag /test:FSMOCheck /s:$dcserver"
                 }
 
-                # Dcdiag Advertising Check
-                $dcdiagAdvertising = dcdiag /test:Advertising /s:$DC
+                #Dcdiag Advertising Check
+                $dcdiagAdvertising = dcdiag /test:Advertising /s:$dcserver
                 if ($dcdiagAdvertising -match "passed test Advertising") {
-                    $Result.DCDIAG_Advertising = "OK"
+                    $setdcdiagAdvertising = "ok"
                 }
                 else {
-                    $Result.DCDIAG_Advertising = (($dcdiagAdvertising | Select-String "Error", "warning" | ForEach-Object { $_.Line.Trim() }) -join "`n") + "`n`nRun dcdiag /test:Advertising /s:$DC"
+                    $setdcdiagAdvertising = (($dcdiagAdvertising | select-string "Error", "warning" | ForEach-Object { $_.line.trim() }) -join "`n") + "`n`nRun dcdiag /test:Advertising /s:$dcserver" 
                 }
+
+                $tryok = "ok"
             }
-            else {
-                $Result.Ping = "DC is down"
-                $Result.Netlogon = "DC is down"
-                $Result.NTDS = "DC is down"
-                $Result.DNS = "DC is down"
-                $Result.DCDIAG_Netlogons = "DC is down"
-                $Result.DCDIAG_Services = "DC is down"
-                $Result.DCDIAG_Replications = "DC is down"
-                $Result.DCDIAG_FSMOCheck = "DC is down"
-                $Result.DCDIAG_Advertising = "DC is down"
+            catch {                
+                Write-Log -logtext "Could not check $dcserver for health : $($_.exception.message)" -logpath $logpath
             }
 
-            $Result | Select-Object DCName, Ping, NTDS, Netlogon, DNS, DCDIAG_Netlogons, DCDIAG_Services, DCDIAG_FSMOCheck, DCDIAG_Replications, DCDIAG_Advertising
-        } -ArgumentList $Dcserver
+            if ($tryok -eq "ok") {
+                $Report += [PSCustomObject]@{
+                    DCName              = $Dcserver
+                    Ping                = $setping
+                    Netlogon            = $setnetlogon
+                    NTDS                = $setntds
+                    DNS                 = $setdcdns
+                    DCDIAG_Netlogons    = $setdcdiagnetlogon
+                    DCDIAG_Services     = $setdcdiagservices
+                    DCDIAG_Replications = $setdcdiagreplications
+                    DCDIAG_FSMOCheck    = $setdcdiagFsmoCheck
+                    DCDIAG_Advertising  = $setdcdiagAdvertising
+                }
+                #set DC status
+                $setdcstatus = "ok"
+            }
+        }
+        else {
+            $setdcstatus = "DC is down"
 
-        $message = "Working over AD health checkfor domain controller $dcserver in domain: $DomainName"
+            $Report += [PSCustomObject]@{
+                DCName              = $Dcserver
+                Ping                = $setdcstatus
+                Netlogon            = $setdcstatus
+                NTDS                = $setdcstatus
+                DNS                 = $setdcstatus
+                DCDIAG_Netlogons    = $setdcstatus
+                DCDIAG_Services     = $setdcstatus
+                DCDIAG_Replications = $setdcstatus
+                DCDIAG_FSMOCheck    = $setdcstatus
+                DCDIAG_Advertising  = $setdcstatus
+            }            
+        }
+    
+        $message = "Working over domain: $DomainName Domain Controller $DCserver health checks."
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
-
-        $Job
     }
 
-    $null = Wait-Job -Job $jobs
-
-    $Report = foreach ($Job in $jobs) {
-        Receive-Job -Job $Job
-    }
-
-    Remove-Job -Job $jobs
-
-    $message = "Finished testing AD health for domain: $DomainName"
-    New-BaloonNotification -title "Information" -message $message
-    Write-Log -logtext $message -logpath $logpath
-
-    $Report = $Report | Select-Object DCName, Ping, NTDS, Netlogon, DNS, DCDIAG_Netlogons, DCDIAG_Services, DCDIAG_FSMOCheck, DCDIAG_Replications, DCDIAG_Advertising
-    return $Report
+    Return $Report 
 }
 
 # This function checks the replication health of domain controllers in the Active Directory domain.
@@ -2304,7 +2223,7 @@ Function Get-ADForestDetails {
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
         
-        $DCInventory += Get-SystemInfo -DomainName $domain -Credential $Credential -servers ($DomainDetails | Where-Object { $_.Domain -eq $domain }).DCName
+        $DCInventory += Get-SystemInfo -DomainName $domain -Credential $Credential -server ($DomainDetails | Where-Object { $_.Domain -eq $domain }).DCName
         
         $message = "The domain: $Domain DC inventory related details collected."
         New-BaloonNotification -title "Information" -message $message
