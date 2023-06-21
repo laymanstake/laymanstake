@@ -1934,7 +1934,7 @@ function New-BaloonNotification {
         register-objectevent $tip BalloonTipClicked BalloonClicked_event -Action { $script.Invoke() } | Out-Null
     }
     catch {}
-    $tip.ShowBalloonTip(15000) # Even if we set it for 1000 milliseconds, it usually follows OS minimum 10 seconds
+    $tip.ShowBalloonTip(10000) # Even if we set it for 1000 milliseconds, it usually follows OS minimum 10 seconds
     Start-Sleep -s 1
     
     $tip.Dispose() # Important to dispose otherwise the icon stays in notifications till reboot
