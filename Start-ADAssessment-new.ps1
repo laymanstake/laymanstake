@@ -2281,7 +2281,7 @@ Function Get-ADForestDetails {
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
         
-        $DCInventory += Get-SystemInfo -DomainName $domain -Credential $Credential -server ($DomainDetails | Where-Object { $_.Domain -eq $domain }).DCName
+        $DCInventory += Get-SystemInfo -DomainName $domain -Credential $Credential -servers ($DomainDetails | Where-Object { $_.Domain -eq $domain }).DCName
         
         $message = "The domain: $Domain DC inventory related details collected."
         New-BaloonNotification -title "Information" -message $message
