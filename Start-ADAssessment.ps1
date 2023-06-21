@@ -7,6 +7,7 @@
     version 1.0 | 06/06/2023 Initial version
     version 1.1 | 15/06/2023 Covered most areas though error proofing and dependency over wsman still remains
     version 1.2 | 16/06/2023 Number of small fixes included wrong calulations on empty groups
+    version 1.3 | 21/06/2023 PowerShell jobs for AD health checks and Domain Summary details, Also chosing least latency DC
 
     The script is kept as much modular as possible so that functions can be modified or added without altering the entire script
     It should be run as administrator and preferably Enterprise Administrator to get complete data. Its advised to run in demonstration environment to be sure first
