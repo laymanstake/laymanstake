@@ -1922,137 +1922,141 @@ function New-BaloonNotification {
 function Test-ADHealth {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
-    )    
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]
+        $DomainName,
+
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)]
+        [pscredential]
+        $Credential
+    )
 
     $Report = @()
     $dcs = Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential
 
-    #foreach domain controller
-    foreach ($Dcserver in $dcs.hostname) {        
-        if (Test-Connection -ComputerName $Dcserver -Count 4 -Quiet) {
-            try {                
-                $setping = "OK"
+    $jobs = foreach ($Dcserver in $dcs.HostName) {
+        $Job = Start-Job -ScriptBlock {
+            param($DC)
+
+            $Result = [pscustomobject] @{
+                DCName              = $DC
+                Ping                = $null
+                Netlogon            = $null
+                NTDS                = $null
+                DNS                 = $null
+                DCDIAG_Netlogons    = $null
+                DCDIAG_Services     = $null
+                DCDIAG_Replications = $null
+                DCDIAG_FSMOCheck    = $null
+                DCDIAG_Advertising  = $null
+            }
+
+            if (Test-Connection -ComputerName $DC -Count 1 -Quiet) {
+                $Result.Ping = "OK"
 
                 # Netlogon Service Status
-                $DcNetlogon = Get-Service -ComputerName $Dcserver -Name "Netlogon" -ErrorAction SilentlyContinue
+                $DcNetlogon = Get-Service -ComputerName $DC -Name "Netlogon" -ErrorAction SilentlyContinue
                 if ($DcNetlogon.Status -eq "Running") {
-                    $setnetlogon = "ok"
+                    $Result.Netlogon = "OK"
                 }
                 else {
-                    $setnetlogon = "$DcNetlogon.status"
+                    $Result.Netlogon = $DcNetlogon.Status
                 }
 
-                #NTDS Service Status
-                $dcntds = Get-Service -ComputerName $Dcserver -Name "NTDS" -ErrorAction SilentlyContinue
-                if ($dcntds.Status -eq "running") {
-                    $setntds = "ok"
+                # NTDS Service Status
+                $dcntds = Get-Service -ComputerName $DC -Name "NTDS" -ErrorAction SilentlyContinue
+                if ($dcntds.Status -eq "Running") {
+                    $Result.NTDS = "OK"
                 }
                 else {
-                    $setntds = "$dcntds.status"
+                    $Result.NTDS = $dcntds.Status
                 }
 
-                #DNS Service Status
-                $dcdns = Get-Service -ComputerName $Dcserver -Name "DNS" -ea SilentlyContinue
-                if ($dcdns.Status -eq "running") {
-                    $setdcdns = "ok"
+                # DNS Service Status
+                $dcdns = Get-Service -ComputerName $DC -Name "DNS" -ErrorAction SilentlyContinue
+                if ($dcdns.Status -eq "Running") {
+                    $Result.DNS = "OK"
                 }
                 else {
-                    $setdcdns = "$dcdns.Status"
+                    $Result.DNS = $dcdns.Status
                 }
 
-                #Dcdiag netlogons "Checking now"
-                $dcdiagnetlogon = dcdiag /test:netlogons /s:$dcserver
-                if ($dcdiagnetlogon -match "passed test NetLogons")	{
-                    $setdcdiagnetlogon = "ok"
+                # Dcdiag netlogons "Checking now"
+                $dcdiagnetlogon = dcdiag /test:netlogons /s:$DC
+                if ($dcdiagnetlogon -match "passed test NetLogons") {
+                    $Result.DCDIAG_Netlogons = "OK"
                 }
                 else {
-                    $setdcdiagnetlogon = (($dcdiagnetlogon | select-string "Error", "warning" | ForEach-Object { $_.line.trim() }) -join "`n") + "`n`nRun dcdiag /test:netlogons /s:$dcserver"
+                    $Result.DCDIAG_Netlogons = (($dcdiagnetlogon | Select-String "Error", "warning" | ForEach-Object { $_.Line.Trim() }) -join "`n") + "`n`nRun dcdiag /test:netlogons /s:$DC"
                 }
 
-                #Dcdiag services check
-                $dcdiagservices = dcdiag /test:services /s:$dcserver
+                # Dcdiag services check
+                $dcdiagservices = dcdiag /test:services /s:$DC
                 if ($dcdiagservices -match "passed test services") {
-                    $setdcdiagservices = "ok"
+                    $Result.DCDIAG_Services = "OK"
                 }
                 else {
-                    $setdcdiagservices = (($dcdiagservices  | select-string "Error", "warning" | ForEach-Object { $_.line.trim() }) -join "`n") + "`n`nRun dcdiag /test:services /s:$dcserver"
+                    $Result.DCDIAG_Services = (($dcdiagservices | Select-String "Error", "warning" | ForEach-Object { $_.Line.Trim() }) -join "`n") + "`n`nRun dcdiag /test:services /s:$DC"
                 }
 
-                #Dcdiag Replication Check
-                $dcdiagreplications = dcdiag /test:Replications /s:$dcserver
+                # Dcdiag Replication Check
+                $dcdiagreplications = dcdiag /test:Replications /s:$DC
                 if ($dcdiagreplications -match "passed test Replications") {
-                    $setdcdiagreplications = "ok"
+                    $Result.DCDIAG_Replications = "OK"
                 }
                 else {
-                    $setdcdiagreplications = (($dcdiagreplications  | select-string "Error", "warning" | ForEach-Object { $_.line.trim() }) -join "`n") + "`n`nRun dcdiag /test:Replications /s:$dcserver"
+                    $Result.DCDIAG_Replications = (($dcdiagreplications | Select-String "Error", "warning" | ForEach-Object { $_.Line.Trim() }) -join "`n") + "`n`nRun dcdiag /test:Replications /s:$DC"
                 }
 
-                #Dcdiag FSMOCheck Check
-                $dcdiagFsmoCheck = dcdiag /test:FSMOCheck /s:$dcserver
+                # Dcdiag FSMOCheck Check
+                $dcdiagFsmoCheck = dcdiag /test:FSMOCheck /s:$DC
                 if ($dcdiagFsmoCheck -match "passed test FsmoCheck") {
-                    $setdcdiagFsmoCheck = "ok"
+                    $Result.DCDIAG_FSMOCheck = "OK"
                 }
                 else {
-                    $setdcdiagFsmoCheck = (($dcdiagFsmoCheck | select-string "Error", "warning" | ForEach-Object { $_.line.trim() }) -join "`n") + "`n`nRun dcdiag /test:FSMOCheck /s:$dcserver"
+                    $Result.DCDIAG_FSMOCheck = (($dcdiagFsmoCheck | Select-String "Error", "warning" | ForEach-Object { $_.Line.Trim() }) -join "`n") + "`n`nRun dcdiag /test:FSMOCheck /s:$DC"
                 }
 
-                #Dcdiag Advertising Check
-                $dcdiagAdvertising = dcdiag /test:Advertising /s:$dcserver
+                # Dcdiag Advertising Check
+                $dcdiagAdvertising = dcdiag /test:Advertising /s:$DC
                 if ($dcdiagAdvertising -match "passed test Advertising") {
-                    $setdcdiagAdvertising = "ok"
+                    $Result.DCDIAG_Advertising = "OK"
                 }
                 else {
-                    $setdcdiagAdvertising = (($dcdiagAdvertising | select-string "Error", "warning" | ForEach-Object { $_.line.trim() }) -join "`n") + "`n`nRun dcdiag /test:Advertising /s:$dcserver" 
+                    $Result.DCDIAG_Advertising = (($dcdiagAdvertising | Select-String "Error", "warning" | ForEach-Object { $_.Line.Trim() }) -join "`n") + "`n`nRun dcdiag /test:Advertising /s:$DC"
                 }
-
-                $tryok = "ok"
             }
-            catch {                
-                Write-Log -logtext "Could not check $dcserver for health : $($_.exception.message)" -logpath $logpath
+            else {
+                $Result.Ping = "DC is down"
+                $Result.Netlogon = "DC is down"
+                $Result.NTDS = "DC is down"
+                $Result.DNS = "DC is down"
+                $Result.DCDIAG_Netlogons = "DC is down"
+                $Result.DCDIAG_Services = "DC is down"
+                $Result.DCDIAG_Replications = "DC is down"
+                $Result.DCDIAG_FSMOCheck = "DC is down"
+                $Result.DCDIAG_Advertising = "DC is down"
             }
 
-            if ($tryok -eq "ok") {
-                $Report += [PSCustomObject]@{
-                    DCName              = $Dcserver
-                    Ping                = $setping
-                    Netlogon            = $setnetlogon
-                    NTDS                = $setntds
-                    DNS                 = $setdcdns
-                    DCDIAG_Netlogons    = $setdcdiagnetlogon
-                    DCDIAG_Services     = $setdcdiagservices
-                    DCDIAG_Replications = $setdcdiagreplications
-                    DCDIAG_FSMOCheck    = $setdcdiagFsmoCheck
-                    DCDIAG_Advertising  = $setdcdiagAdvertising
-                }
-                #set DC status
-                $setdcstatus = "ok"
-            }
-        }
-        else {
-            $setdcstatus = "DC is down"
+            $Result | Select-Object DCName, Ping, NTDS, Netlogon, DNS, DCDIAG_Netlogons, DCDIAG_Services, DCDIAG_FSMOCheck, DCDIAG_Replications, DCDIAG_Advertising
+        } -ArgumentList $Dcserver
 
-            $Report += [PSCustomObject]@{
-                DCName              = $Dcserver
-                Ping                = $setdcstatus
-                Netlogon            = $setdcstatus
-                NTDS                = $setdcstatus
-                DNS                 = $setdcstatus
-                DCDIAG_Netlogons    = $setdcstatus
-                DCDIAG_Services     = $setdcstatus
-                DCDIAG_Replications = $setdcstatus
-                DCDIAG_FSMOCheck    = $setdcstatus
-                DCDIAG_Advertising  = $setdcstatus
-            }            
-        }
-    
-        $message = "Working over domain: $DomainName Domain Controller $DCserver health checks."
-        New-BaloonNotification -title "Information" -message $message
-        Write-Log -logtext $message -logpath $logpath
+        $Job
     }
 
-    Return $Report 
+    $null = Wait-Job -Job $jobs
+
+    $Report = foreach ($Job in $jobs) {
+        Receive-Job -Job $Job
+    }
+
+    Remove-Job -Job $jobs
+
+    $message = "Finished testing AD health for domain: $DomainName"
+    New-BaloonNotification -title "Information" -message $message
+    Write-Log -logtext $message -logpath $logpath
+
+    $Report = $Report | Select-Object DCName, Ping, NTDS, Netlogon, DNS, DCDIAG_Netlogons, DCDIAG_Services, DCDIAG_FSMOCheck, DCDIAG_Replications, DCDIAG_Advertising
+    return $Report
 }
 
 # This function checks the replication health of domain controllers in the Active Directory domain.
