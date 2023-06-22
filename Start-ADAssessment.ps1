@@ -1457,14 +1457,16 @@ Function Start-SecurityCheck {
     ForEach ($DC in $DCs) {
         if (Test-Connection -ComputerName $Dc -Count 4 -Quiet) {
             try {
+                $remotereg = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC))
+
                 $results = (
-            ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('LmCompatibilityLevel'),
-            ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('NoLMHash'),
-            ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('RestrictAnonymous'),
-            ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('System\CurrentControlSet\Services\NTDS\Parameters').GetValue('LDAPServerIntegrity'),
-            ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC)).OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').GetValue('InactivityTimeoutSecs')
+                    $remotereg.OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('LmCompatibilityLevel'),
+                    $remotereg.OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('NoLMHash'),
+                    $remotereg.OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('RestrictAnonymous'),
+                    $remotereg.OpenSubKey('System\CurrentControlSet\Services\NTDS\Parameters').GetValue('LDAPServerIntegrity'),
+                    $remotereg.OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').GetValue('InactivityTimeoutSecs')
                 )
-                $null = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $dc)).Close()                
+                $null = $remotereg.Close()                
             }
             catch {
                 Write-Log -logtext "Could not check for security related registry keys on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
