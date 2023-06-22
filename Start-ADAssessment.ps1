@@ -248,10 +248,18 @@ Function Get-ADFSDetails {
             Write-Log -logtext "ADSync Server - PS remoting NOT supported on $server : $($_.Exception.Message)" -logpath $logpath
         }
 
+        Try {
+            $ConnectorName = invoke-command -ComputerName $server -ScriptBlock { (Get-ADSyncConnector).Name[0] }
+        }
+        catch {
+            Write-Log -logtext "ADSync Server - Could not read ADSync Connector on $server : $($_.Exception.Message)" -logpath $logpath
+        }
+
         $Info = [PSCustomObject]@{
             ServerName      = $server
             OperatingSystem = (Get-ADComputer $server -server $PDC -Credential $Credential -properties OperatingSystem).OperatingSystem            
             ADSyncVersion   = $ADSyncVersion
+            Connection      = $ConnectorName
             IsActive        = (Get-Service -ComputerName $Server -Name ADSync -ErrorAction SilentlyContinue).Status -eq "Running"
         }
 
