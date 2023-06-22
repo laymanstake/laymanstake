@@ -355,7 +355,19 @@ Function Get-ADDNSZoneDetails {
 
     ForEach ($DNSZone in $DNSZones) {
         If ($DNSZone.DistinguishedName) {
-            $Info = (Get-DnsServerZone -zoneName $DNSZone.ZoneName -ComputerName $PDC | Where-Object { -NOT $_.IsReverseLookupZone -AND $_.ZoneType -ne "Forwarder" }).Distinguishedname | ForEach-Object { Get-ADObject -Identity $_ -Server $PDC -Credential $Credential -Properties ProtectedFromAccidentalDeletion, Created }
+            try {
+                $Info = (Get-DnsServerZone -zoneName $DNSZone.ZoneName -ComputerName $PDC | Where-Object { -NOT $_.IsReverseLookupZone -AND $_.ZoneType -ne "Forwarder" }).Distinguishedname | ForEach-Object { Get-ADObject -Identity $_ -Server $PDC -Credential $Credential -Properties ProtectedFromAccidentalDeletion, Created }
+            }
+            catch {
+                $message = "Could not get DNS zone $($DNSZone.ZoneName) details from domain: $DomainName ."
+                New-BaloonNotification -title "Information" -message $message
+                Write-Log -logtext $message -logpath $logpath
+
+                $Info = [PSCustomObject]@{
+                    ProtectedFromAccidentalDeletion = $false
+                    Created                         = ""
+                }
+            }
             try {
                 $Aging = Get-DnsServerZoneAging -ZoneName $DNSZone.ZoneName -ComputerName $PDC -ErrorAction SilentlyContinue
                 $ScanvengingState = $Aging.AgingEnabled
