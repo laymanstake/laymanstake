@@ -418,10 +418,10 @@ Function Get-AdminCountDetails {
     )
     
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    $protectedGroups = (Get-ADGroup -Filter * -Server $PDC -Credential $Credential -properties adminCount | Where-Object { $_.adminCount -eq 1 }).Name
-
+    
+    $protectedGroups = (Get-ADGroup -LDAPFilter "(&(objectCategory=group)(adminCount=1))" -Server $PDC -Credential $Credential).Name
     $ProtectedUsers = ($protectedGroups | ForEach-Object { Get-ADGroupMemberRecursive -GroupName $_ -DomainName $DomainName -Credential $Credential } | Sort-Object Name -Unique).Name
-    $UserWithAdminCount = (Get-ADUser -Filter * -Server $PDC -Credential $Credential -Properties AdminCount | Where-Object { $_.adminCount -eq 1 }).Name
+    $UserWithAdminCount = (Get-ADuser -LDAPFilter "(&(objectCategory=user)(objectClass=user)(adminCount=1))" -Server $PDC -Credential $Credential -Properties AdminCount).Name    
     $UndesiredAdminCount = (Compare-Object -ReferenceObject $UserWithAdminCount -DifferenceObject $ProtectedUsers | Where-Object { $_.SideIndicator -eq '<=' -AND $_.InputObject -ne "krbtgt" }).InputObject
 
     $AdminCountDetails = [PSCustomObject]@{
