@@ -1583,42 +1583,70 @@ Function Start-SecurityCheck {
                         $seceditContent = Get-Content "$env:TEMP\secedit.cfg" 
             
                         $LocalLogonSIDs = ((($seceditContent | Select-String "SeInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
-                        $LocalLogonUsers = $LocalLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                            $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                            $User = $SID.Translate([System.Security.Principal.NTAccount])
-                            $User.Value
+                        try {
+                            $LocalLogonUsers = $LocalLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                                $User = $SID.Translate([System.Security.Principal.NTAccount])
+                                $User.Value
+                            }
+                        }
+                        catch {
+                            Write-Log -logtext "Could not check for local logon allowed users on domain controller $dc : $($_.exception.message)" -logpath $logpath
                         }
                         $LocalLogonUsers -join "`n"
             
                         $RemoteLogonSIDs = ((($seceditContent | Select-String "SeRemoteInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
-                        $RemoteLogonUsers = $RemoteLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                            $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                            $User = $SID.Translate([System.Security.Principal.NTAccount])
-                            $User.Value
+                        try {
+                            $RemoteLogonUsers = $RemoteLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                                $User = $SID.Translate([System.Security.Principal.NTAccount])
+                                $User.Value
+                            }
+                        }
+                        catch {
+                            Write-Log -logtext "Could not check for remote logon allowed users on domain controller $dc : $($_.exception.message)" -logpath $logpath
                         }
                         $RemoteLogonUsers -join "`n"            
 
                         $DenyNetworkLogonSIDs = ((($seceditContent | Select-String "SeDenyNetworkLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
-                        $DenyNetworkLogonUsers = $DenyNetworkLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                            $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                            $User = $SID.Translate([System.Security.Principal.NTAccount])
-                            $User.Value
+                        
+                        try {
+                            $DenyNetworkLogonUsers = $DenyNetworkLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                                $User = $SID.Translate([System.Security.Principal.NTAccount])
+                                $User.Value
+                            }
+                        }
+                        catch {
+                            Write-Log -logtext "Could not check for deny network logon users on domain controller $dc : $($_.exception.message)" -logpath $logpath
                         }
                         $DenyNetworkLogonUsers -join "`n"            
 
                         $DenyServiceLogonSIDs = ((($seceditContent | Select-String "SeDenyServiceLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
-                        $DenyServiceLogonUsers = $DenyServiceLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                            $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                            $User = $SID.Translate([System.Security.Principal.NTAccount])
-                            $User.Value
+                        
+                        try {
+                            $DenyServiceLogonUsers = $DenyServiceLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                                $User = $SID.Translate([System.Security.Principal.NTAccount])
+                                $User.Value
+                            }
+                        }
+                        catch {
+                            Write-Log -logtext "Could not check for deny service logon users on domain controller $dc : $($_.exception.message)" -logpath $logpath
                         }
                         $DenyServiceLogonUsers -join "`n"
 
                         $DenyBatchLogonSIDs = ((($seceditContent | Select-String "SeDenyBatchLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
-                        $DenyBatchLogonUsers = $DenyBatchLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object {
-                            $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                            $User = $SID.Translate([System.Security.Principal.NTAccount])
-                            $User.Value
+                        
+                        try {
+                            $DenyBatchLogonUsers = $DenyBatchLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object {
+                                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                                $User = $SID.Translate([System.Security.Principal.NTAccount])
+                                $User.Value
+                            }
+                        }
+                        catch {
+                            Write-Log -logtext "Could not check for deny batch logon users on domain controller $dc : $($_.exception.message)" -logpath $logpath
                         }
                         $DenyBatchLogonUsers -join "`n"
 
