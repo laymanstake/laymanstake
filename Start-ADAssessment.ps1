@@ -1514,8 +1514,9 @@ Function Start-SecurityCheck {
                     $remotereg.OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('RestrictAnonymous'),
                     $remotereg.OpenSubKey('System\CurrentControlSet\Services\NTDS\Parameters').GetValue('LDAPServerIntegrity'),
                     $remotereg.OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').GetValue('InactivityTimeoutSecs')
-                )
-                $null = $remotereg.Close()                
+                )                
+                $null = $remotereg.Close()
+                if (Results.count -ne 5) { throw }
             }
             catch {
                 Write-Log -logtext "Could not check for security related registry keys on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
