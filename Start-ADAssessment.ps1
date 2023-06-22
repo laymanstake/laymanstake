@@ -720,8 +720,9 @@ Function Get-ADGPOSummary {
     
     $AllGPOs = Get-GPO -All -Domain $DomainName
     $LinkedGPOs = @($AllGPOs | Where-Object { $_ | Get-GPOReport -ReportType XML -Domain $DomainName | Select-String -Pattern  "<LinksTo>" -SimpleMatch } | Select-Object DisplayName, CreationTime, ModificationTime )
-    $UnlinkedGPOs = @($AllGPOs | Where-Object { $_ | Get-GPOReport -ReportType XML -Domain $DomainName | Select-String -NotMatch "<LinksTo>" } | Select-Object DisplayName, CreationTime, ModificationTime )
+    $UnlinkedGPOs = @($AllGPOs | Where-Object { $_.DisplayName -NotIn $LinkedGPOs.DisplayName } | Select-Object DisplayName, CreationTime, ModificationTime )
     $DeactivatedGPOs = @($AllGPOs | Where-Object { $_.GPOStatus -eq "AllSettingsDisabled" } | Select-Object DisplayName, CreationTime, ModificationTime )
+    
     $LinkedButDeactivatedGPOs = @()
 
     If ($LinkedGPOs.count -ge 1 -AND $DeactivatedGPOs.Count -ge 1) {
