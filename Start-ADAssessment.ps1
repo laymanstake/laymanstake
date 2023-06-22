@@ -1284,7 +1284,8 @@ Function Get-ADGroupDetails {
 
     $AllGroups = Get-ADGroup -Filter { GroupCategory -eq "Security" } -Properties GroupScope -Server $PDC -Credential $Credential
 
-    $Filter = "(&(objectCategory=Group)(!member=*))"
+    # Primary groups fail the logic of finding empty groups so manually excluded
+    $Filter = "(&(objectCategory=Group)(!member=*)(!(cn=Domain Users))(!(cn=Domain Computers))(!(cn=domain controllers))(!(cn=Read-only Domain Controllers))(!(cn=Read-only Domain Guests)))"
     $EmptyGroups = Get-ADGroup -LDAPFilter $Filter -Server $PDC -Credential $Credential -Properties GroupScope
 
     $GroupDetails += [PSCustomObject]@{
