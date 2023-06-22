@@ -1281,11 +1281,13 @@ Function Get-ADGroupDetails {
 
     $GroupDetails = @()    
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-
+    $domainSID = (Get-ADDomain $DomainName -server $PDC -Credential $Credential -ErrorAction SilentlyContinue).domainSID.Value
+    
     $AllGroups = Get-ADGroup -Filter { GroupCategory -eq "Security" } -Properties GroupScope -Server $PDC -Credential $Credential
 
     # Primary groups fail the logic of finding empty groups so manually excluded
-    $Filter = "(&(objectCategory=Group)(!member=*)(!(cn=Domain Users))(!(cn=Domain Computers))(!(cn=domain controllers))(!(cn=Read-only Domain Controllers))(!(cn=Read-only Domain Guests)))"
+    $SIDsToExclude = (($DomainSID + "-513"), ($DomainSID + "-514"), ($DomainSID + "-515"), ($DomainSID + "-516"), ($DomainSID + "-521"))
+    $Filter = "(&(objectCategory=Group)(!member=*)(!(objectSid=$($SIDsToExclude[0])))(!(objectSid=$($SIDsToExclude[1])))(!(objectSid=$($SIDsToExclude[2])))(!(objectSid=$($SIDsToExclude[3])))(!(objectSid=$($SIDsToExclude[4]))))"
     $EmptyGroups = Get-ADGroup -LDAPFilter $Filter -Server $PDC -Credential $Credential -Properties GroupScope
 
     $GroupDetails += [PSCustomObject]@{
