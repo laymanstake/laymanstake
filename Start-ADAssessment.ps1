@@ -168,12 +168,12 @@ Function Get-ADFSDetails {
     $ADFSServerDetails = @()
     $AADCServerDetails = @()
 
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
 
     $i = 0
 
-    # Filtering out disabled computers and also those which are not reachable on ICMP for ADFS/ADSync check
-    Get-ADComputer -Filter { Enabled -eq $True -and OperatingSystem -like "*Server*" } -Properties OperatingSystem, LastLogonDate | Where-Object { (Test-Connection $_.Name -Count 1 -Quiet) -AND $_.LastLogonDate -gt (Get-Date).AddDays(-30) } |
+    # Filtering out disabled computers or stale computers
+    Get-ADComputer -Filter { Enabled -eq $True -and OperatingSystem -like "*Server*" } -Server $DomainName -Credential $Credential -Properties OperatingSystem, LastLogonDate | Where-Object { $_.LastLogonDate -gt (Get-Date).AddDays(-30) } |
     ForEach-Object {
         $computer = $_.Name
         try {            
@@ -1826,39 +1826,84 @@ Function Get-SystemInfo {
         if ((Test-Connection -ComputerName $s.name -count 2 -Quiet) -AND (Test-WSMan -ComputerName $s.Name -ErrorAction SilentlyContinue)) {
             try {
                 $CPUInfo = Get-CimInstance Win32_Processor -ComputerName $s.Name
+                $processor = $CPUInfo.Name -join ","
+                $PhysicalCores = $CPUInfo.NumberOfCores -join ","
+                $Logicalcores = $CPUInfo.NumberOfLogicalProcessors -join ","
+            }
+            catch {
+                $processor = ""
+                $PhysicalCores = ""
+                $Logicalcores = ""
+            }
+            
+            try {
                 $PhysicalMemory = Get-CimInstance CIM_PhysicalMemory -ComputerName $s.Name | Measure-Object -Property capacity -Sum | ForEach-Object { [Math]::Round(($_.sum / 1GB), 2) }
+            }
+            Catch { $PhysicalMemory = "" }
+            
+            try {
                 $NetworkInfo = Get-CimInstance Win32_networkadapter -ComputerName $s.Name | Where-Object { $_.MACAddress -AND $_.PhysicalAdapter -eq $true }
-                $DiskInfo = Get-CimInstance Win32_LogicalDisk -ComputerName $s.Name
-                $SerialNumber = (Get-CimInstance Win32_BIOs -ComputerName $s.Name).SerialNumber
-                $MakeInfo = Get-CimInstance Win32_ComputerSystem -ComputerName $s.Name
+                $NIC_Count = ($NetworkInfo | Measure-object).Count
+                $NIC_Name = ($NetworkInfo.NetConnectionID -join ",")
+                $NIC_MAC = ($NetworkInfo.MACAddress -join ",")
                 $NICSpeed = (($NetworkInfo.Speed | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -Join " Gbps,") + " Gbps"
+            }
+            catch { 
+                $NIC_Count = ""
+                $NIC_Name = ""
+                $NIC_MAC = ""
+                $NICSpeed = ""
+            }
+            try {
+                $DiskInfo = Get-CimInstance Win32_LogicalDisk -ComputerName $s.Name
                 $DiskSizes = (($DiskInfo.size | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
                 $DiskFreeSizes = (($DiskInfo.FreeSpace | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
+                $DriveLetter = $DiskInfo.DeviceID -join ","
+            }
+            catch {
+                $DiskSizes = ""
+                $DiskFreeSizes = ""
+                $DriveLetter = ""
+            }
 
-                $infoObject += [PSCustomObject]@{
-                    Name            = $s.Name
-                    IPAddress       = $s.IPV4Address
-                    SerialNumber    = $SerialNumber
-                    Manufacturer    = $MakeInfo.Manufacturer
-                    Model           = $MakeInfo.Model
-                    OperatingSystem = $s.OperatingSystem
-                    Processor       = ($CPUInfo.Name -join ",")
-                    PhysicalCores   = ($CPUInfo.NumberOfCores -join ",")
-                    Logicalcores    = ($CPUInfo.NumberOfLogicalProcessors -join ",")
-                    PhysicalMemory  = $PhysicalMemory
-                    NIC_Count       = ($NetworkInfo | Measure-object).Count
-                    NIC_Name        = ($NetworkInfo.NetConnectionID -join ",")
-                    NIC_MAC         = ($NetworkInfo.MACAddress -join ",")
-                    NIC_Speed       = $NICSpeed
-                    DriveLetter     = ($DiskInfo.DeviceID -join ",")                
-                    DriveSize       = $DiskSizes
-                    DriveFreeSpace  = $DiskFreeSizes
-                }
+            try {
+                $SerialNumber = (Get-CimInstance Win32_BIOs -ComputerName $s.Name).SerialNumber
             }
-            catch {            
-                Write-Log -logtext "Could not get inventory info from server $($s.Name) : $($_.Exception.Message)" -logpath $logpath
-                Continue
+            catch {
+                $SerialNumber = ""
             }
+            
+            try {
+                $MakeInfo = Get-CimInstance Win32_ComputerSystem -ComputerName $s.Name
+                $Manufacturer = $MakeInfo.Manufacturer
+                $Model = $MakeInfo.Model
+            }
+            catch {
+                $Manufacturer = ""
+                $Model = ""
+            }
+            
+            
+
+            $infoObject += [PSCustomObject]@{
+                Name            = $s.Name
+                IPAddress       = $s.IPV4Address
+                SerialNumber    = $SerialNumber
+                Manufacturer    = $Manufacturer
+                Model           = $Model
+                OperatingSystem = $s.OperatingSystem
+                Processor       = $Processor
+                PhysicalCores   = $PhysicalCores
+                Logicalcores    = $Logicalcores
+                PhysicalMemory  = $PhysicalMemory
+                NIC_Count       = $NIC_Count
+                NIC_Name        = $NIC_Name
+                NIC_MAC         = $NIC_MAC
+                NIC_Speed       = $NICSpeed
+                DriveLetter     = $DriveLetter
+                DriveSize       = $DiskSizes
+                DriveFreeSpace  = $DiskFreeSizes
+            }        
         }
         else {
             $infoObject += [PSCustomObject]@{
@@ -2095,7 +2140,7 @@ function Test-ADHealth {
             $Result | Select-Object DCName, Ping, NTDS, Netlogon, DNS, DCDIAG_Netlogons, DCDIAG_Services, DCDIAG_FSMOCheck, DCDIAG_Replications, DCDIAG_Advertising
         } -ArgumentList $Dcserver
 
-        $message = "Working over AD health checkfor domain controller $dcserver in domain: $DomainName"
+        $message = "Working over AD health check for domain controller $dcserver in domain: $DomainName"
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
 
@@ -2427,7 +2472,7 @@ Function Get-ADForestDetails {
         $message = "Working over domain: $Domain GPO ($(($GPOSummaryDetails | Where-Object {$_.Domain -eq $domain}).AllGPOs)) related details."
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
-                
+
         $GPODetails += Get-GPOInventory -DomainName $domain
         
         $message = "GPO related details from domain: $Domain done."
@@ -2497,12 +2542,15 @@ Function Get-ADForestDetails {
     If ($ClientOSDetails) {        
         $ClientOSSummary = $ClientOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Client OS Summary</h2>"
     }
+
     If ($FGPwdPolicyDetails) {
         $FGPwdPolicySummary = ($FGPwdPolicyDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Fine Grained Password Policy Summary</h2>") -replace "`n", "<br>"
     }
+
     If ($UndesiredAdminCount) {
         $UndesiredAdminCountSummary = ($UndesiredAdminCount | ConvertTo-Html -As Table  -Fragment -PreContent "<h2> Undesired AdminCount atribute user Summary</h2>") -replace "`n", "<br>"
     }
+
     If ($ObjectsToClean) {
         $ObjectsToCleanSummary = ($ObjectsToClean | ConvertTo-Html -As Table  -Fragment -PreContent "<h2> Orphaned and Lingering objects Summary</h2>") -replace "`n", "<br>"
     }
@@ -2510,6 +2558,7 @@ Function Get-ADForestDetails {
     If ($OrphanedFSPDetails) {
         $OrphanedFSPSummary = ($OrphanedFSPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2> Orphaned foreign security principals Summary</h2>") -replace "`n", "<br>"
     }
+
     If ($unusedScripts) {
         $unusedScriptsSummary = ($unusedScripts | ConvertTo-Html -As Table  -Fragment -PreContent "<h2> Unused Netlogon Scripts summary </h2>") -replace "`n", "<br>"
     }
