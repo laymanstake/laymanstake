@@ -236,7 +236,12 @@ Function Get-ADFSDetails {
         }
         
         if (Test-WSMan -ComputerName $server -ErrorAction SilentlyContinue) {
-            $ADSyncVersion = (Get-CimInstance -ClassName Cim_DataFile -ComputerName $server -Filter "Name='$InstallPath'").Version
+            try {
+                $ADSyncVersion = (Get-CimInstance -ClassName Cim_DataFile -ComputerName $server -Filter "Name='$InstallPath'").Version
+            }
+            catch {
+                Write-Log -logtext "ADSync Server - Could not read ADSync version on $server : $($_.Exception.Message)" -logpath $logpath
+            }
         }
         else {
             $ADSyncVersion = "Access denied"
@@ -1680,8 +1685,9 @@ function Get-UnusedNetlogonScripts {
         Write-Log -logtext "Could not access Netlogon share to read script files : $($_.Exception.Message)" -logpath $logpath
     }
     $scriptFiles = $scriptfiles -replace $DomainName, $DomainName.Split(".")[0] | Where-Object { $_ -ne $null } | Sort-Object -Unique
-    $referencedScripts = (Get-ADuser -filter * -Server $PDC -Properties ScriptPath | Where-Object { $_.ScriptPath } | Sort-Object ScriptPath -Unique).ScriptPath
     
+    $Filter = "(&(objectCategory=User)(objectClass=User)(scriptPath=*))"    
+    $referencedScripts = (Get-ADUser -LDAPFilter $Filter -Server $PDC -Credential $Credential -Properties ScriptPath | Select-Object ScriptPath -Unique).ScriptPath    
 
     if ($scriptFiles) {
         $gpos = Get-GPO -All -Domain $DomainName -Server $PDC
