@@ -1590,9 +1590,7 @@ Function Start-SecurityCheck {
                                 $User.Value
                             }
                         }
-                        catch {
-                            Write-Log -logtext "Could not check for local logon allowed users on domain controller $dc : $($_.exception.message)" -logpath $logpath
-                        }
+                        catch {}
                         $LocalLogonUsers -join "`n"
             
                         $RemoteLogonSIDs = ((($seceditContent | Select-String "SeRemoteInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
@@ -1603,9 +1601,7 @@ Function Start-SecurityCheck {
                                 $User.Value
                             }
                         }
-                        catch {
-                            Write-Log -logtext "Could not check for remote logon allowed users on domain controller $dc : $($_.exception.message)" -logpath $logpath
-                        }
+                        catch {}
                         $RemoteLogonUsers -join "`n"            
 
                         $DenyNetworkLogonSIDs = ((($seceditContent | Select-String "SeDenyNetworkLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
@@ -1617,9 +1613,7 @@ Function Start-SecurityCheck {
                                 $User.Value
                             }
                         }
-                        catch {
-                            Write-Log -logtext "Could not check for deny network logon users on domain controller $dc : $($_.exception.message)" -logpath $logpath
-                        }
+                        catch {}
                         $DenyNetworkLogonUsers -join "`n"            
 
                         $DenyServiceLogonSIDs = ((($seceditContent | Select-String "SeDenyServiceLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
@@ -1631,9 +1625,7 @@ Function Start-SecurityCheck {
                                 $User.Value
                             }
                         }
-                        catch {
-                            Write-Log -logtext "Could not check for deny service logon users on domain controller $dc : $($_.exception.message)" -logpath $logpath
-                        }
+                        catch {}
                         $DenyServiceLogonUsers -join "`n"
 
                         $DenyBatchLogonSIDs = ((($seceditContent | Select-String "SeDenyBatchLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
@@ -1645,9 +1637,7 @@ Function Start-SecurityCheck {
                                 $User.Value
                             }
                         }
-                        catch {
-                            Write-Log -logtext "Could not check for deny batch logon users on domain controller $dc : $($_.exception.message)" -logpath $logpath
-                        }
+                        catch {}
                         $DenyBatchLogonUsers -join "`n"
 
                         $null = Remove-Item "$env:TEMP\secedit.cfg"
