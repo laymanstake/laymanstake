@@ -2081,7 +2081,7 @@ function Test-ADHealth {
 
     Remove-Job -Job $jobs
 
-    $message = "Finished testing AD health for domain: $DomainName"
+    $message = "Finished performing basic AD health for domain: $DomainName , replication health would be checked now."
     New-BaloonNotification -title "Information" -message $message
     Write-Log -logtext $message -logpath $logpath
 
