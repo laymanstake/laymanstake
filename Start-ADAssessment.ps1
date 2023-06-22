@@ -237,7 +237,8 @@ Function Get-ADFSDetails {
         
         if (Test-WSMan -ComputerName $server -ErrorAction SilentlyContinue) {
             try {
-                $ADSyncVersion = (Get-CimInstance -ClassName Cim_DataFile -ComputerName $server -Filter "Name='$InstallPath'").Version
+                $ADSyncVersion = (Get-CimInstance -ClassName Cim_DataFile -ComputerName $server -Filter "Name='$InstallPath'" -ErrorAction SilentlyContinue).Version
+                if (!$ADSyncVersion) { throw }
             }
             catch {
                 Write-Log -logtext "ADSync Server - Could not read ADSync version on $server : $($_.Exception.Message)" -logpath $logpath
@@ -249,7 +250,7 @@ Function Get-ADFSDetails {
         }
 
         Try {
-            $ConnectorName = invoke-command -ComputerName $server -ScriptBlock { (Get-ADSyncConnector).Name[0] }
+            $ConnectorName = invoke-command -ComputerName $server -ScriptBlock { (Get-ADSyncConnector).Name[0] } -ErrorAction SilentlyContinue
         }
         catch {
             Write-Log -logtext "ADSync Server - Could not read ADSync Connector on $server : $($_.Exception.Message)" -logpath $logpath
