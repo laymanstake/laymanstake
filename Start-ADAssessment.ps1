@@ -171,7 +171,9 @@ Function Get-ADFSDetails {
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
 
     $i = 0
-    Get-ADComputer -Filter { Enabled -eq $True -and OperatingSystem -like "*Server*" } -Properties OperatingSystem, LastLogonDate | Where-Object { (Test-Connection $_.Name -Count 1 -Quiet) -AND $_.LastLogonDate -gt (Get-Date).AddDays(-30) } |    
+
+    # Filtering out disabled computers and also those which are not reachable on ICMP for ADFS/ADSync check
+    Get-ADComputer -Filter { Enabled -eq $True -and OperatingSystem -like "*Server*" } -Properties OperatingSystem, LastLogonDate | Where-Object { (Test-Connection $_.Name -Count 1 -Quiet) -AND $_.LastLogonDate -gt (Get-Date).AddDays(-30) } |
     ForEach-Object {
         $computer = $_.Name
         try {            
