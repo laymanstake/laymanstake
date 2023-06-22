@@ -1585,10 +1585,12 @@ Function Start-SecurityCheck {
                         $LocalLogonSIDs = ((($seceditContent | Select-String "SeInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
                         try {
                             $LocalLogonUsers = $LocalLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                                $User = $SID.Translate([System.Security.Principal.NTAccount])
-                                $User.Value
-                            }
+                                if ($_ -like "S-1*") {
+                                    $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                                    $User = $SID.Translate([System.Security.Principal.NTAccount])
+                                    $User.Value
+                                }
+                                else { $_ } }
                         }
                         catch {}
                         $LocalLogonUsers -join "`n"
@@ -1596,10 +1598,12 @@ Function Start-SecurityCheck {
                         $RemoteLogonSIDs = ((($seceditContent | Select-String "SeRemoteInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
                         try {
                             $RemoteLogonUsers = $RemoteLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                                $User = $SID.Translate([System.Security.Principal.NTAccount])
-                                $User.Value
-                            }
+                                if ($_ -like "S-1*") {
+                                    $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                                    $User = $SID.Translate([System.Security.Principal.NTAccount])
+                                    $User.Value
+                                }
+                                else { $_ } }
                         }
                         catch {}
                         $RemoteLogonUsers -join "`n"            
@@ -1607,11 +1611,13 @@ Function Start-SecurityCheck {
                         $DenyNetworkLogonSIDs = ((($seceditContent | Select-String "SeDenyNetworkLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
                         
                         try {
-                            $DenyNetworkLogonUsers = $DenyNetworkLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                                $User = $SID.Translate([System.Security.Principal.NTAccount])
-                                $User.Value
-                            }
+                            $DenyNetworkLogonUsers = $DenyNetworkLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object {
+                                if ($_ -like "S-1*") {
+                                    $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                                    $User = $SID.Translate([System.Security.Principal.NTAccount])
+                                    $User.Value
+                                }
+                                else { $_ } }
                         }
                         catch {}
                         $DenyNetworkLogonUsers -join "`n"            
@@ -1619,11 +1625,14 @@ Function Start-SecurityCheck {
                         $DenyServiceLogonSIDs = ((($seceditContent | Select-String "SeDenyServiceLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
                         
                         try {
+                            
                             $DenyServiceLogonUsers = $DenyServiceLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
-                                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                                $User = $SID.Translate([System.Security.Principal.NTAccount])
-                                $User.Value
-                            }
+                                if ($_ -like "S-1*") {
+                                    $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                                    $User = $SID.Translate([System.Security.Principal.NTAccount])
+                                    $User.Value
+                                }
+                                else { $_ } }
                         }
                         catch {}
                         $DenyServiceLogonUsers -join "`n"
@@ -1631,11 +1640,14 @@ Function Start-SecurityCheck {
                         $DenyBatchLogonSIDs = ((($seceditContent | Select-String "SeDenyBatchLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
                         
                         try {
+                            
                             $DenyBatchLogonUsers = $DenyBatchLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object {
-                                $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
-                                $User = $SID.Translate([System.Security.Principal.NTAccount])
-                                $User.Value
-                            }
+                                if ($_ -like "S-1*") {
+                                    $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                                    $User = $SID.Translate([System.Security.Principal.NTAccount])
+                                    $User.Value
+                                }
+                                else { $_ } }
                         }
                         catch {}
                         $DenyBatchLogonUsers -join "`n"
