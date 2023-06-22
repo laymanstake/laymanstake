@@ -525,7 +525,7 @@ Function Get-DHCPInventory {
     $Reservations = @()
 
     foreach ($dhcp in $DHCPs) {
-        if (Test-Connection -ComputerName $dhcp.DNSName -count 2) { 
+        if (Test-Connection -ComputerName $dhcp.DNSName -count 2 -Quiet) { 
             try {
                 $scopes = $null
                 $scopes = (Get-DhcpServerv4Scope -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue)
