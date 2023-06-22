@@ -427,7 +427,13 @@ Function Get-ADGroupMemberRecursive {
                 $membersRecursive += Get-ADGroupMemberRecursive -GroupName $member -DomainName $Domain.DNSRoot -Credential $Credential
             }
             else {
-                $membersRecursive += Get-ADUser -identity $member -Server $PDC  -Credential $Credential | Select-Object Name
+                try {
+                    $membersRecursive += Get-ADUser -identity $member -Server $PDC  -Credential $Credential | Select-Object Name
+                }
+                catch {
+                    $message = "Failed to get details for $member in domain: $DomainName ."                    
+                    Write-Log -logtext $message -logpath $logpath
+                }
             }
         }
     }
