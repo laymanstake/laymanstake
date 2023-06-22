@@ -82,8 +82,19 @@ function Write-Log {
 
     $Stamp = (Get-Date).toString("yyyy/MM/dd HH:mm:ss")
     $LogMessage = "$Stamp : $logtext"
-    Add-content $logpath -value $LogMessage
+    
+    $isWritten = $false
+
+    do {
+        try {
+            Add-content $logpath -value $LogMessage -ErrorAction SilentlyContinue
+            $isWritten = $true
+        }
+        catch {
+        }
+    } until ( $isWritten )
 }
+
 
 # This function retrieves detailed information about trust relationships in the Active Directory domain, including trust type and direction.
 Function Get-ADTrustDetails {
