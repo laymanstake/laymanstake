@@ -287,14 +287,16 @@ Function Get-PKIDetails {
         $PKIDetails = $PKI
         try {
             if ( Test-WSMan -ComputerName $PKI.DnsHostName -ErrorAction SilentlyContinue) {
+
+                # Find the name of the CA on the domain joined enterprised CA
                 $RemoteReg = [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $PKI.DnsHostName)
                 $key = $remotereg.OpenSubkey("SYSTEM\CurrentControlSet\Services\CertSvc\Configuration")
-                $CertAuthorityName = $key.GetSubkeyNames()
+                $CertAuthorityName = $key.GetSubkeyNames() # Name of the CA, not hostname
                 
-                $SecureAlgo = invoke-command -ComputerName $PKI.DnsHostName -Credential $Credential -ScriptBlock { 
-
+                # Find the certificate of the particular CA authority name and then find out, who issued certificate and then ensure it's not some cert which has been renewed
+                $SecureAlgo = invoke-command -ComputerName $PKI.DnsHostName -Credential $Credential -ScriptBlock {
                     $RootCa = ((Get-ChildItem -Path cert:\LocalMachine\CA | Where-Object { ($_.Subject -split "=" -split ",")[1] -eq $using:CertAuthorityName }).Issuer -split "=" -split "," )[1]
-                    $ActiveRootCACert = (Get-ChildItem -Path cert:\LocalMachine\CA | ? { ($_.Issuer -split "=" -split ",")[1] -eq $RootCa -AND ($_.Subject -split "=" -split ",")[1] -eq $RootCa } ) | ? { $_.Extensions.oid.friendlyName -notcontains "Previous ca certificate hash" }
+                    $ActiveRootCACert = (Get-ChildItem -Path cert:\LocalMachine\CA | ? { ($_.Issuer -split "=" -split ",")[1] -eq $RootCa -AND ($_.Subject -split "=" -split ",")[1] -eq $RootCa } ) | Where-Object { $_.Extensions.oid.friendlyName -notcontains "Previous ca certificate hash" }
                     $rootCa
                     $ActiveRootCACert.SignatureAlgorithm.Friendlyname
                 }
