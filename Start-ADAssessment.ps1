@@ -287,13 +287,26 @@ Function Get-PKIDetails {
         $PKIDetails = $PKI
         try {
             if ( Test-WSMan -ComputerName $PKI.DnsHostName -ErrorAction SilentlyContinue) {
-                $cert = invoke-command -ComputerName $PKI.DnsHostName -Credential $Credential -ScriptBlock { Get-ChildItem -Path cert:\LocalMachine\my | Where-Object { $_.issuer -eq $_.Subject } }
-                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "SecureHashAlgo" -value $cert.SignatureAlgorithm.FriendlyName
+                $RemoteReg = [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $PKI.DnsHostName)
+                $key = $remotereg.OpenSubkey("SYSTEM\CurrentControlSet\Services\CertSvc\Configuration")
+                $CertAuthorityName = $key.GetSubkeyNames()
+                
+                $SecureAlgo = invoke-command -ComputerName $PKI.DnsHostName -Credential $Credential -ScriptBlock { 
+
+                    $RootCa = ((Get-ChildItem -Path cert:\LocalMachine\CA | Where-Object { ($_.Subject -split "=" -split ",")[1] -eq $using:CertAuthorityName }).Issuer -split "=" -split "," )[1]
+                    $ActiveRootCACert = (Get-ChildItem -Path cert:\LocalMachine\CA | ? { ($_.Issuer -split "=" -split ",")[1] -eq $RootCa -AND ($_.Subject -split "=" -split ",")[1] -eq $RootCa } ) | ? { $_.Extensions.oid.friendlyName -notcontains "Previous ca certificate hash" }
+                    $rootCa
+                    $ActiveRootCACert.SignatureAlgorithm.Friendlyname
+                }
+                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "SecureHashAlgo" -value $SecureAlgo[1]
+                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "StandAloneCA" -value $SecureAlgo[0]
+                $null = $RemoteReg.close()
             }
         }
         catch {
             Write-Log -logtext "PKI Server - WinRM access denied, can't obtain SHA information from $server : $($_.Exception.Message)" -logpath $logpath            
             Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "SecureHashAlgo" -value "UNKNOWN"
+            Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "StandAloneCA" -value "UNKNOWN"
         }
     }    
     
