@@ -81,6 +81,7 @@ Function New-BaloonNotification {
     $tip.Dispose() # Important to dispose otherwise the icon stays in notifications till reboot
     Get-EventSubscriber -SourceIdentifier "BalloonClicked_event"  -ErrorAction SilentlyContinue | Unregister-Event # In case if the Event Subscription is not disposed
 }
+
 Function Start-ServiceCheck {
     [CmdletBinding()]
     Param(
