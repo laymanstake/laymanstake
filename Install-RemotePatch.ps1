@@ -113,7 +113,7 @@ Function Start-ServiceCheck {
 
     # Find the most recent service status report
     try {
-        $ServiceStatusPath = "$WorkDirectory\$((Get-ChildItem -Path $WorkDirectory | Where-Object{$_.Name -like "$($ServerName)*.csv"} | Sort-Object LastWriteTime | Select-Object -Last 1).Name)"
+        $ServiceStatusPath = "$WorkDirectory\$((Get-ChildItem -Path $WorkDirectory | Where-Object{$_.Name -like "$($ServerName)*.csv"} | Where-Object {$_.LastWriteTime -gt (Get-Date).AddDays(-1)} | Sort-Object LastWriteTime | Select-Object -Last 1).Name)"
     }
     catch {
         $message = "Something went wrong in finding services status on $($serverName): $($_.Exception.Message)"
@@ -125,11 +125,11 @@ Function Start-ServiceCheck {
         $ServiceStatus = Import-Csv -Path $ServiceStatusPath   
     
         # Service status baseline before the Patch process
-        $BaseStatusPath = "$WorkDirectory\$ServerName" + (Get-Date -Format dd-MM-yyyy).ToString() + ".csv"
+        $BaseStatusPath = "$WorkDirectory\$($ServerName)_$((Get-Date -Format dd-MM-yyyy).ToString()).csv"         
 
         If ($ServiceStatusPath -ne $BaseStatusPath) {
             If ($ServiceStatus.count -ge 11) {            
-                $message = "More than 10 Services seem to be in altered state on $($serverName), need manual attention. Quitting now. $($ServiceStatus)"
+                $message = "More than 10 Services seem to be in altered state on $($serverName), need manual attention. Quitting now.`n$($ServiceStatus)"
                 New-BaloonNotification -title "Error" -message $message
                 Write-Log -logtext $message -logpath $logpath
                 #Exit
