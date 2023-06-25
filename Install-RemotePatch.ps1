@@ -29,7 +29,7 @@ $WorkDir = "c:\temp\RemoteUpdate" # This is hard-coded, script would break if an
 $logpath = "$env:USERPROFILE\desktop\RemoteUpdate_$(get-date -Uformat "%Y%m%d-%H%M%S").txt"
 $Counter = 0
 
-function Write-Log {
+Function Write-Log {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$logtext,
@@ -51,7 +51,7 @@ function Write-Log {
     } until ( $isWritten )
 }
 
-function New-BaloonNotification {
+Function New-BaloonNotification {
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)][String]$title,
         [Parameter(ValueFromPipeline = $true, mandatory = $true)][String]$message,        
@@ -81,7 +81,6 @@ function New-BaloonNotification {
     $tip.Dispose() # Important to dispose otherwise the icon stays in notifications till reboot
     Get-EventSubscriber -SourceIdentifier "BalloonClicked_event"  -ErrorAction SilentlyContinue | Unregister-Event # In case if the Event Subscription is not disposed
 }
-
 Function Start-ServiceCheck {
     [CmdletBinding()]
     Param(
