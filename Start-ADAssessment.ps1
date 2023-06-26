@@ -2285,7 +2285,9 @@ Function Get-ADForestDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)]$CSSHeader = $header,
         [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential,
         [Parameter(ValueFromPipeline = $true, mandatory = $false)]$ChildDomain,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$ADFS
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$ADFS,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$DHCP,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$GPO
 
     )    
 
@@ -2533,17 +2535,19 @@ Function Get-ADForestDetails {
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
 
-        $GPOSummaryDetails += Get-ADGPOSummary -DomainName $domain -credential $Credential
+        if ($GPO) {
+            $GPOSummaryDetails += Get-ADGPOSummary -DomainName $domain -credential $Credential
 
-        $message = "Working over domain: $Domain GPO ($(($GPOSummaryDetails | Where-Object {$_.Domain -eq $domain}).AllGPOs)) related details."
-        New-BaloonNotification -title "Information" -message $message
-        Write-Log -logtext $message -logpath $logpath
+            $message = "Working over domain: $Domain GPO ($(($GPOSummaryDetails | Where-Object {$_.Domain -eq $domain}).AllGPOs)) related details."
+            New-BaloonNotification -title "Information" -message $message
+            Write-Log -logtext $message -logpath $logpath
 
-        $GPODetails += Get-GPOInventory -DomainName $domain
+            $GPODetails += Get-GPOInventory -DomainName $domain
         
-        $message = "GPO related details from domain: $Domain done."
-        New-BaloonNotification -title "Information" -message $message
-        Write-Log -logtext $message -logpath $logpath
+            $message = "GPO related details from domain: $Domain done."
+            New-BaloonNotification -title "Information" -message $message
+            Write-Log -logtext $message -logpath $logpath
+        }
 
         $SysvolNetlogonPermissions += Get-SysvolNetlogonPermissions -DomainName $domain -Credential $Credential 
         
@@ -2577,7 +2581,7 @@ Function Get-ADForestDetails {
         $TrustSummary = ($TrustDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Trust Summary</h2>")
     }    
     
-    If ($DHCPFlag) {        
+    If ($DHCPFlag -AND $DHCP) {        
         $message = "Looking for all DHCP servesr in forest: $forest and their scope details. It might take long time"
         New-BaloonNotification -title "Caution" -message $message -icon Warning
         Write-Log -logtext $message -logpath $logpath
@@ -2591,20 +2595,16 @@ Function Get-ADForestDetails {
         $message = "DHCP Server information in forest: $forest collected"
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
-    }
+    }    
     
-    #If ($PKIDetails) {
     $PKISummary = ($PKIDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Certificate servers Summary</h2>") -replace '<td>SHA1RSA</td>', '<td bgcolor="red">SHA1RSA</td>'
-    #}
-    
     If ($ADSyncDetails) {
         $ADSyncSummary = ($ADSyncDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADSync servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
     }
     
     If ($ADFSDetails) {
         $ADFSSummary = ($ADFSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADFS servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>' -replace "`n", "<br>"
-    }    
-    
+    }
     If ($ClientOSDetails) {        
         $ClientOSSummary = $ClientOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Client OS Summary</h2>"
     }
@@ -2612,7 +2612,6 @@ Function Get-ADForestDetails {
     If ($FGPwdPolicyDetails) {
         $FGPwdPolicySummary = ($FGPwdPolicyDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Fine Grained Password Policy Summary</h2>") -replace "`n", "<br>"
     }
-
     If ($UndesiredAdminCount) {
         $UndesiredAdminCountSummary = ($UndesiredAdminCount | ConvertTo-Html -As Table  -Fragment -PreContent "<h2> Undesired AdminCount atribute user Summary</h2>") -replace "`n", "<br>"
     }
@@ -2628,6 +2627,10 @@ Function Get-ADForestDetails {
     If ($unusedScripts) {
         $unusedScriptsSummary = ($unusedScripts | ConvertTo-Html -As Table  -Fragment -PreContent "<h2> Unused Netlogon Scripts summary </h2>") -replace "`n", "<br>"
     }
+    if ($GPO) {
+        $GPOSummary = ($GPOSummaryDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>GPO Summary</h2>") -replace "`n", "<br>"
+        $GPOInventory = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>GPO Inventory</h2>") -replace "`n", "<br>"
+    }
 
     $DomainSummary = ($DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>") -replace '<td>Reg not found</td>', '<td bgcolor="red">Reg not found</td>' -replace "`n", "<br>"
     $DomainHealthSumamry = ($ADHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controller health Summary</h2>") -replace "`n", "<br>" -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
@@ -2641,9 +2644,7 @@ Function Get-ADForestDetails {
     $PrivGroupSummary = ($privGroupDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Priviledged groups Summary</h2>") -replace '<td>True</td>', '<td bgcolor="red">True</td>'
     $PwdPolicySummary = $PasswordPolicyDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Password Policy Summary</h2>"
     $ServerOSSummary = $ServerOSDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Server OS Summary</h2>"
-    $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"
-    $GPOSummary = ($GPOSummaryDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>GPO Summary</h2>") -replace "`n", "<br>"
-    $GPOInventory = ($GPODetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>GPO Inventory</h2>") -replace "`n", "<br>"
+    $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"    
     $SysvolNetlogonPermSummary = ($SysvolNetlogonPermissions | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Sysvol and Netlogon Permissions Summary</h2>") -replace "`n", "<br>"
     $SecuritySummary = ($SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>") -replace "`n", "<br>" -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>' -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
     $DCSummary = ($DCInventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers Inventory</h2>") -replace "`n", "<br>"
@@ -2679,7 +2680,7 @@ switch ($choice) {
         }
 
         if ($test) {
-            Get-ADForestDetails -Credential $Credential -ADFS
+            Get-ADForestDetails -Credential $Credential -ADFS -DHCP -GPO
         }
         else {
             Write-Host "Credentials not working"
@@ -2706,7 +2707,7 @@ switch ($choice) {
         }
 
         if ($test) {
-            Get-ADForestDetails -Credential $DomainCred -ChildDomain $DomainName -ADFS
+            Get-ADForestDetails -Credential $DomainCred -ChildDomain $DomainName -ADFS -DHCP -GPO
         }
         else {
             Write-Host "Credentials not working"
