@@ -396,7 +396,7 @@ Function Start-Patch {
     try {
         Invoke-command -ComputerName $ServerName -ScriptBlock {
             $null = Remove-Item "c:\temp\RemoteUpdate\Installpatches.ps1" -Force -ErrorAction SilentlyContinue
-            #$null = Remove-Item "c:\temp\RemoteUpdate\RebootRequired.txt"  -Force -ErrorAction SilentlyContinue
+            $null = Remove-Item "c:\temp\RemoteUpdate\RebootRequired.txt"  -Force -ErrorAction SilentlyContinue
             Unregister-ScheduledTask -TaskName "RemoteWindowsUpdate" -Confirm:$false
         }
     }
@@ -418,7 +418,7 @@ Clear-Host
 $RemoteComputer = Read-Host "Enter the Server name to patch and reboot"
 $Results = Start-Patch -ServerName $RemoteComputer
 
-if ($Results.Services) {
+if ($Results.Services ) {
     Write-Output "The services in Altered state `n" 
     $Results.Services | Format-Table DisplayName, Status
 }
