@@ -215,7 +215,7 @@ Function Start-Patch {
             Else {
                 $Pre = import-csv -Path $ServiceStatusPath
                 $Post = Get-Service | Select-object DisplayName, servicename, starttype, status
-                Compare-object -ReferenceObject $Pre -DifferenceObject $Post -Property Status, displayname, name | Where-Object { $_.sideIndicator -eq "=>" } | export-csv -nti $CSVPath
+                Compare-object -ReferenceObject $Pre -DifferenceObject $Post -Property Status, displayname, name | Where-Object { $_.sideIndicator -eq "=>" } | export-csv -nti $CSVPath -Force
             }
 
             #Testing if there are any pending reboots from earlier Windows Update sessions 
@@ -280,6 +280,10 @@ Function Start-Patch {
                                 Write-Log -logtext $message -logpath $logpath    
                             }
                         }
+                        else {
+                            Set-Content "c:\temp\RemoteUpdate\RebootRequired.txt" -Value "Reboot Not Required or not allowed" -Force
+                            Get-Service | Select-object DisplayName, servicename, starttype, status | export-csv -nti $CSVPath -Force
+                        }
                     } 
                 }
             }
@@ -324,7 +328,7 @@ Function Start-Patch {
     New-BaloonNotification -title "Information" -message $message
     Write-Log -logtext $message -logpath $logpath
 
-    $Initial = (Get-EventLog -ComputerName $serverName -LogName "System" -Source "Microsoft-Windows-WindowsUpdateClient" -After (Get-Date).AddDays(-1) -Newest 1 -ErrorAction SilentlyContinue).Message
+    $Initial = "Not logs yet"
     $count = 0
     $StartTime = Get-Date
 
@@ -333,9 +337,9 @@ Function Start-Patch {
         $ExprStart = [Scriptblock]::Create($ExprStart1)
         $State = Invoke-command -ComputerName $ServerName -ScriptBlock $ExprStart
         write-progress -activity "Patching started at $StartTime" -status (get-date)
-        If ($Initial -ne (Get-EventLog -ComputerName $serverName -LogName "System" -Source "Microsoft-Windows-WindowsUpdateClient" -After (Get-Date).AddDays(-1) -Newest 1 -ErrorAction SilentlyContinue).Message) {
+        If ($Initial -ne (Get-EventLog -ComputerName $serverName -LogName "System" -Source "Microsoft-Windows-WindowsUpdateClient" -After ($StartTime).AddDays(-1) -Newest 1 -ErrorAction SilentlyContinue).Message) {
             $count++
-            $Initial = (Get-EventLog -ComputerName $serverName -LogName "System" -Source "Microsoft-Windows-WindowsUpdateClient" -After (Get-Date).AddDays(-1) -Newest 1 -ErrorAction SilentlyContinue).Message
+            $Initial = (Get-EventLog -ComputerName $serverName -LogName "System" -Source "Microsoft-Windows-WindowsUpdateClient" -After ($StartTime).AddDays(-1) -Newest 1 -ErrorAction SilentlyContinue).Message
             [String]$count + ". " + $Initial
         }
     } Until ($State.Value -eq 'Ready')
@@ -347,23 +351,24 @@ Function Start-Patch {
         New-BaloonNotification -title "Warning" -message $message
         Write-Log -logtext $message -logpath $logpath
         Restart-Computer -ComputerName $ServerName -Force -Wait -For PowerShell -Timeout 7200 -Delay 2
-            
-        Invoke-command -ComputerName $ServerName -ScriptBlock {
-            $FileReportPath = "c:\temp\RemoteUpdate"
-            $ServiceStatusPath = $FileReportPath + "\$($env:ComputerName)_$((Get-Date -Format dd-MM-yyyy).ToString()).csv" 
-            $CSVPath = $FileReportPath + "\$($env:ComputerName)_$((Get-Date -Format dd-MM-yyyy_HH-mm).ToString()).csv" 
-
-            $Pre = import-csv -Path $ServiceStatusPath
-            $Post = Get-Service | Select-object DisplayName, servicename, starttype, status
-            Compare-object -ReferenceObject $Pre -DifferenceObject $Post -Property Status, displayname, name | Where-Object { $_.sideIndicator -eq "=>" } | export-csv -nti $CSVPath
-        }
     }
     else {
-        $message = "Patching pass completed on $($serverName). Reboot not required."
+        $message = "Patching pass completed on $($serverName). Reboot not required. Checking if more updates are required"
         New-BaloonNotification -title "Information" -message $message
-        Write-Log -logtext $message -logpath $logpath    
+        Write-Log -logtext $message -logpath $logpath
+        #Get-Service | Select-object DisplayName, servicename, starttype, status | export-csv -nti $CSVPath -Force
     }    
     
+    Invoke-command -ComputerName $ServerName -ScriptBlock {
+        $FileReportPath = "c:\temp\RemoteUpdate"
+        $ServiceStatusPath = $FileReportPath + "\$($env:ComputerName)_$((Get-Date -Format dd-MM-yyyy).ToString()).csv" 
+        $CSVPath = $FileReportPath + "\$($env:ComputerName)_$((Get-Date -Format dd-MM-yyyy_HH-mm).ToString()).csv" 
+
+        $Pre = import-csv -Path $ServiceStatusPath
+        $Post = Get-Service | Select-object DisplayName, servicename, starttype, status
+        Compare-object -ReferenceObject $Pre -DifferenceObject $Post -Property Status, displayname, name | Where-Object { $_.sideIndicator -eq "=>" } | export-csv -nti $CSVPath -Force
+    }
+
     $PendingUpdates = Get-Content -tail 3 "\\$($servername)\c$\Windows\SoftwareDistribution\ReportingEvents.log"
     
     if (($PendingUpdates -contains "detected 0 updates") -ne "") {
@@ -391,7 +396,7 @@ Function Start-Patch {
     try {
         Invoke-command -ComputerName $ServerName -ScriptBlock {
             $null = Remove-Item "c:\temp\RemoteUpdate\Installpatches.ps1" -Force -ErrorAction SilentlyContinue
-            $null = Remove-Item "c:\temp\RemoteUpdate\RebootRequired.txt"  -Force -ErrorAction SilentlyContinue
+            #$null = Remove-Item "c:\temp\RemoteUpdate\RebootRequired.txt"  -Force -ErrorAction SilentlyContinue
             Unregister-ScheduledTask -TaskName "RemoteWindowsUpdate" -Confirm:$false
         }
     }
@@ -410,11 +415,21 @@ Function Start-Patch {
 }
 
 Clear-Host
-$RemoteComputer = Read-Host "Enter the Server name to patch and reboot: "
+$RemoteComputer = Read-Host "Enter the Server name to patch and reboot"
 $Results = Start-Patch -ServerName $RemoteComputer
 
-Write-Output "The services in Altered state `n" 
-$Results.Services | Format-Table DisplayName, Status
+if ($Results.Services) {
+    Write-Output "The services in Altered state `n" 
+    $Results.Services | Format-Table DisplayName, Status
+}
+else {
+    Write-Output "No services are in Altered state `n" 
+}
 
-Write-Output "The list of patches installed today `n" 
-$Results.Patches | Format-Table PSComputerName, InstalledOn, HotfixID, Description
+if ($Results.Patches) {
+    Write-Output "The list of patches installed today `n" 
+    $Results.Patches | Format-Table PSComputerName, InstalledOn, HotfixID, Description
+}
+else {
+    Write-Output "No patches installed`n" 
+}
