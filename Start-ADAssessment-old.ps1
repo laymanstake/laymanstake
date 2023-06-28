@@ -259,8 +259,13 @@ Function Get-PKIDetails {
         $PKIDetails = $PKI
         try {
             if ( Test-WSMan -ComputerName $PKI.DnsHostName -ErrorAction SilentlyContinue) {
-                $cert = invoke-command -ComputerName $PKI.DnsHostName -Credential $Credential -ScriptBlock { Get-ChildItem -Path cert:\LocalMachine\my | Where-Object { $_.issuer -eq $_.Subject } }
-                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "SecureHashAlgo" -value $cert.SignatureAlgorithm.FriendlyName
+                $cert = invoke-command -ComputerName $PKI.DnsHostName -Credential $Credential -ScriptBlock { 
+                    Get-ChildItem -Path cert:\LocalMachine\my | Where-Object { $_.issuer -eq $_.Subject }
+                    $CertSummary = certutil -view -out "Issued Request ID,Requester Name,Request Type,Issued Common Name,Certificate Template,Public Key Length,Certificate Effective Date,Certificate Expiration Date" csv  | ConvertFrom-Csv
+                    ($CertSummary | Group-Object "Certificate Template" | Select-Object @{l = "TemplateSummary"; e = { "$($_.Name) - $($_.Count)" } }).TemplateSummary -join "`n"
+                }
+                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "SecureHashAlgo" -value $cert[0].SignatureAlgorithm.FriendlyName
+                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "IssuedSummary" -value $cert[1]                
             }
         }
         catch {

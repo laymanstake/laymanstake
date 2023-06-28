@@ -294,14 +294,17 @@ Function Get-PKIDetails {
                 $CertAuthorityName = $key.GetSubkeyNames() # Name of the CA, not hostname
                 
                 # Find the certificate of the particular CA authority name and then find out, who issued certificate and then ensure it's not some cert which has been renewed
-                $SecureAlgo = invoke-command -ComputerName $PKI.DnsHostName -Credential $Credential -ScriptBlock {
+                $CADetails = invoke-command -ComputerName $PKI.DnsHostName -Credential $Credential -ScriptBlock {
                     $RootCa = ((Get-ChildItem -Path cert:\LocalMachine\CA | Where-Object { ($_.Subject -split "=" -split ",")[1] -eq $using:CertAuthorityName }).Issuer -split "=" -split "," )[1]
-                    $ActiveRootCACert = (Get-ChildItem -Path cert:\LocalMachine\CA | ? { ($_.Issuer -split "=" -split ",")[1] -eq $RootCa -AND ($_.Subject -split "=" -split ",")[1] -eq $RootCa } ) | Where-Object { $_.Extensions.oid.friendlyName -notcontains "Previous ca certificate hash" }
+                    $ActiveRootCACert = (Get-ChildItem -Path cert:\LocalMachine\CA | Where-Object { ($_.Issuer -split "=" -split ",")[1] -eq $RootCa -AND ($_.Subject -split "=" -split ",")[1] -eq $RootCa } ) | Where-Object { $_.Extensions.oid.friendlyName -notcontains "Previous ca certificate hash" } | Sort-Object -Unique
+                    $CertSummary = certutil -view -out "Issued Request ID,Requester Name,Request Type,Issued Common Name,Certificate Template,Public Key Length,Certificate Effective Date,Certificate Expiration Date" csv  | ConvertFrom-Csv                    
                     $rootCa
-                    $ActiveRootCACert.SignatureAlgorithm.Friendlyname
+                    $ActiveRootCACert.SignatureAlgorithm.Friendlyname -join ","
+                    ($CertSummary | Group-Object "Certificate Template" | Select-Object @{l = "TemplateSummary"; e = { "$($_.Name) - $($_.Count)" } }).TemplateSummary -join "`n"
                 }
-                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "SecureHashAlgo" -value $SecureAlgo[1]
-                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "StandAloneCA" -value $SecureAlgo[0]
+                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "SecureHashAlgo" -value $CADetails[1]
+                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "StandAloneCA" -value $CADetails[0]
+                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "IssedCertSummary" -value $CADetails[2]
                 $null = $RemoteReg.close()
             }
         }
@@ -2597,7 +2600,7 @@ Function Get-ADForestDetails {
         Write-Log -logtext $message -logpath $logpath
     }    
     
-    $PKISummary = ($PKIDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Certificate servers Summary</h2>") -replace '<td>SHA1RSA</td>', '<td bgcolor="red">SHA1RSA</td>'
+    $PKISummary = ($PKIDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Certificate servers Summary</h2>") -replace '<td>SHA1RSA</td>', '<td bgcolor="red">SHA1RSA</td>'  -replace "`n", "<br>"
     If ($ADSyncDetails) {
         $ADSyncSummary = ($ADSyncDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADSync servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
     }
