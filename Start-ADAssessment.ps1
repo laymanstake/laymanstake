@@ -95,6 +95,7 @@ function Write-Log {
     } until ( $isWritten )
 }
 
+# This function creates DFS inventory for the given domain.
 function Get-DFSInventory {
     param (
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
@@ -118,23 +119,31 @@ function Get-DFSInventory {
             $ShareNames = ($NamespacePath | ForEach-Object { Get-DFSNFolderTarget -Path $_ } | Select-Object TargetPath).TargetPath            
             
             $ContentPath = ($ShareNames | ForEach-Object { 
-                    $ShareName = ($_.Split('\\') | select-Object -Last 1) 
-                    $ServerName = ($_.split("\\")[2]) 
-                    if (Test-Connection -ComputerName $ServerName -Count 1 -ErrorAction SilentlyContinue) {
-                        $Path = Get-WmiObject Win32_Share -filter "Name LIKE '$Sharename'" -ComputerName $ServerName -ErrorAction SilentlyContinue
-                    }
+                    $ShareName = ($_.Split('\\') | select-Object -Last 1)
                     
+                    $ServerName = ($_.split("\\")[2])
+                    If (-Not($ServerName -match "[.]")) { 
+                        $ServerName = $ServerName + "." + $DomainName
+                    }
+
+                    if (Test-Connection -ComputerName $ServerName -Count 1 -ErrorAction SilentlyContinue) {
+                        try {
+                            $Path = Get-WmiObject Win32_Share -filter "Name LIKE '$Sharename'" -ComputerName $ServerName -ErrorAction SilentlyContinue
+                        }
+                        catch {}
+                    }
+
                     if ($Path) { 
-                        $Path.path
+                        "$($ServerName) :: $($Path.Path)"
                     }
                     else { 
-                        "$($ServerName) not reachable" 
+                        "$($ServerName) not reachable"
                     } })
 
             $RGGroup = ($ReplicatedFolders | Where-Object { $_.DFSNPath -eq $NamespacePath -AND $_.DFSNPath -ne "" }).Groupname
             if ($RGGroup) {
                 $HoursReplicated = (Get-DfsrGroupSchedule -GroupName $RGGroup -DomainName $DomainName -ErrorAction SilentlyContinue | Select-Object HoursReplicated).HoursReplicated
-                $Members = Get-DfsrMembership -GroupName $RGGroup -DomainName $Domainname -ErrorAction SilentlyContinue | Select-Object DFSNPath, @{l = "ContentPath"; e = { "$($_.Computername) :: $($_.ContentPath)" } }, ReadOnly, RemoveDeletedFiles, Enabled, State
+                $Members = Get-DfsrMembership -GroupName $RGGroup -DomainName $Domainname -ErrorAction SilentlyContinue | Select-Object ReadOnly, RemoveDeletedFiles, Enabled, State
             }
             else {
                 $RGGroup = "No replication group found"
