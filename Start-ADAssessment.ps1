@@ -100,27 +100,38 @@ function Get-DFSInventory {
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
     )
 
+    $ErrorActionPreference = "SilentlyContinue"
     Try {
         $DFSNRoots = Get-dfsnroot -Domain $DomainName | Where-Object { $_.State -eq "Online" } | Select-Object Path, Type
     }
     Catch {
     }
 
+    $ReplicatedFolders = Get-DfsReplicatedFolder -DomainName $DomainName | Select-Object DFSNPath, GroupName -Unique
+
     $infoObject = @()
 
     ForEach ($DFSNRoot in $DFSNRoots) {
         $Namespaces = Get-DfsnFolder -Path ($DFSNRoot.Path + "\*") | Select-Object Path, State
 
-        ForEach ($NameSpace in $NameSpaces) {        
-            $FolderName = (($NameSpace.Path).replace($DFSNRoot.Path, "")).Substring(1)            
-            $RGGroup = (Get-DFSReplicatedFolder -FolderName $FolderName -DomainName $DomainName | Select-Object GroupName).GroupName
-            $HoursReplicated = (Get-DfsrGroupSchedule -GroupName $RGGroup -DomainName $DomainName | Select-Object HoursReplicated).HoursReplicated
-            $Members = Get-DfsrMembership -GroupName $RGGroup -DomainName $Domainname | Select-Object DFSNPath, @{l = "ContentPath"; e = { "$($_.Computername) :: $($_.ContentPath)" } }, ReadOnly, RemoveDeletedFiles, Enabled, State
+        $Namespaces | ForEach-Object {
+            $NamespacePath = $_.Path
+            $RGGroup = ($ReplicatedFolders | Where-Object { $_.DFSNPath -eq $NamespacePath }).Groupname
+            if ($RGGroup) {
+                $HoursReplicated = (Get-DfsrGroupSchedule -GroupName $RGGroup -DomainName $DomainName | Select-Object HoursReplicated).HoursReplicated
+                $Members = Get-DfsrMembership -GroupName $RGGroup -DomainName $Domainname | Select-Object DFSNPath, @{l = "ContentPath"; e = { "$($_.Computername) :: $($_.ContentPath)" } }, ReadOnly, RemoveDeletedFiles, Enabled, State
+            }
+            else {
+                $RGGroup = "No replication group found"
+                $HoursReplicated = "NA"
+                $Members = "NA"
+            }
+            
             $infoObject += [PSCustomObject]@{
                 DFSNRoot             = $DFSNRoot.Path
                 DFSNRootType         = $DFSNRoot.Type
-                NamespacePath        = $NameSpace.Path
-                NamespaceState       = $NameSpace.State
+                NamespacePath        = $_.Path
+                NamespaceState       = $_.State
                 ReplicationGroupName = $RGGroup
                 ShareNames           = $Members.DFSNPath -join "`n"
                 ContentPath          = $Members.ContentPath -join "`n"
