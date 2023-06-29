@@ -117,7 +117,18 @@ function Get-DFSInventory {
             $NamespacePath = $_.Path
             
             $ShareNames = ($NamespacePath | ForEach-Object { Get-DFSNFolderTarget -Path $_ } | Select-Object TargetPath).TargetPath            
-            $ContentPath = ($ShareNames | ForEach-Object { $ShareName = ($_.Split('\\') | select-Object -Last 1) ; $ServerName = ($_.split("\\")[2]) ; $Path = Get-WmiObject Win32_Share -filter "Name LIKE '$Sharename'" -ComputerName $ServerName -ErrorAction SilentlyContinue; if ($Path) { $Path } else { $Path = "$($ServerName) not reachable" } }).Path            
+            $ContentPath = ($ShareNames | ForEach-Object { 
+                    $ShareName = ($_.Split('\\') | select-Object -Last 1) 
+                    $ServerName = ($_.split("\\")[2]) 
+                    if (Test-Connection -ComputerName $ServerName -Count 1) {
+                        $Path = Get-WmiObject Win32_Share -filter "Name LIKE '$Sharename'" -ComputerName $ServerName -ErrorAction SilentlyContinue
+                    }
+                    if ($Path) { 
+                        $Path 
+                    }
+                    else { 
+                        $Path = "$($ServerName) not reachable" 
+                    } }).Path            
 
             $RGGroup = ($ReplicatedFolders | Where-Object { $_.DFSNPath -eq $NamespacePath -AND $_.DFSNPath -ne "" }).Groupname
             if ($RGGroup) {
