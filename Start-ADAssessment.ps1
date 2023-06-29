@@ -99,27 +99,29 @@ function Get-DFSInventory {
     param (
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
     )
-
-    $ErrorActionPreference = "SilentlyContinue"
+    
     Try {
-        $DFSNRoots = Get-dfsnroot -Domain $DomainName | Where-Object { $_.State -eq "Online" } | Select-Object Path, Type
+        $DFSNRoots = Get-dfsnroot -Domain $DomainName -ErrorAction SilentlyContinue | Where-Object { $_.State -eq "Online" } | Select-Object Path, Type
     }
     Catch {
     }
 
-    $ReplicatedFolders = Get-DfsReplicatedFolder -DomainName $DomainName | Select-Object DFSNPath, GroupName -Unique
+    $ReplicatedFolders = Get-DfsReplicatedFolder -DomainName $DomainName -ErrorAction SilentlyContinue | Select-Object DFSNPath, GroupName -Unique
 
     $infoObject = @()
 
     ForEach ($DFSNRoot in $DFSNRoots) {
-        $Namespaces = Get-DfsnFolder -Path ($DFSNRoot.Path + "\*") | Select-Object Path, State
+        $Namespaces = Get-DfsnFolder -Path ($DFSNRoot.Path + "\*") -ErrorAction SilentlyContinue | Select-Object Path, State
 
         $Namespaces | ForEach-Object {
             $NamespacePath = $_.Path
-            $RGGroup = ($ReplicatedFolders | Where-Object { $_.DFSNPath -eq $NamespacePath }).Groupname
+            $ShareNames = ($NamespacePath | % { Get-DFSNFolderTarget -Path $_ } | Select-Object TargetPath).TargetPath            
+            $ContentPath = ($ShareNames | ForEach-Object { $ShareName = ($_.Split('\\') | select-Object -Last 1) ; Get-WmiObject Win32_Share -filter "Name LIKE '$Sharename'" -ComputerName ($_.split("\\")[2]) }).Path            
+
+            $RGGroup = ($ReplicatedFolders | Where-Object { $_.DFSNPath -eq $NamespacePath -AND $_.DFSNPath -ne "" }).Groupname
             if ($RGGroup) {
-                $HoursReplicated = (Get-DfsrGroupSchedule -GroupName $RGGroup -DomainName $DomainName | Select-Object HoursReplicated).HoursReplicated
-                $Members = Get-DfsrMembership -GroupName $RGGroup -DomainName $Domainname | Select-Object DFSNPath, @{l = "ContentPath"; e = { "$($_.Computername) :: $($_.ContentPath)" } }, ReadOnly, RemoveDeletedFiles, Enabled, State
+                $HoursReplicated = (Get-DfsrGroupSchedule -GroupName $RGGroup -DomainName $DomainName -ErrorAction SilentlyContinue | Select-Object HoursReplicated).HoursReplicated
+                $Members = Get-DfsrMembership -GroupName $RGGroup -DomainName $Domainname -ErrorAction SilentlyContinue | Select-Object DFSNPath, @{l = "ContentPath"; e = { "$($_.Computername) :: $($_.ContentPath)" } }, ReadOnly, RemoveDeletedFiles, Enabled, State
             }
             else {
                 $RGGroup = "No replication group found"
@@ -133,8 +135,8 @@ function Get-DFSInventory {
                 NamespacePath        = $_.Path
                 NamespaceState       = $_.State
                 ReplicationGroupName = $RGGroup
-                ShareNames           = $Members.DFSNPath -join "`n"
-                ContentPath          = $Members.ContentPath -join "`n"
+                ShareNames           = $ShareNames -join "`n"
+                ContentPath          = $ContentPath -join "`n"
                 ReadOnly             = $Members.readOnly -join "`n"
                 RemoveDeletedFiles   = $Members.RemoveDeletedFiles -join "`n"
                 Enabled              = $Members.Enabled -join "`n"
