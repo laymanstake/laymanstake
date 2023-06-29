@@ -111,8 +111,9 @@ function Get-DFSInventory {
     ForEach ($DFSNRoot in $DFSNRoots) {
         $Namespaces = Get-DfsnFolder -Path ($DFSNRoot.Path + "\*") | Select-Object Path, State
 
-        ForEach ($NameSpace in $NameSpaces) {
-            $RGGroup = (Get-DFSReplicatedFolder -FolderName ($NameSpace.Path -split '\\' | Select-Object -Last 1) -DomainName $DomainName | Select-Object GroupName).GroupName
+        ForEach ($NameSpace in $NameSpaces) {        
+            $FolderName = (($NameSpace.Path).replace($DFSNRoot.Path, "")).Substring(1)            
+            $RGGroup = (Get-DFSReplicatedFolder -FolderName $FolderName -DomainName $DomainName | Select-Object GroupName).GroupName
             $HoursReplicated = (Get-DfsrGroupSchedule -GroupName $RGGroup -DomainName $DomainName | Select-Object HoursReplicated).HoursReplicated
             $Members = Get-DfsrMembership -GroupName $RGGroup -DomainName $Domainname | Select-Object DFSNPath, @{l = "ContentPath"; e = { "$($_.Computername) :: $($_.ContentPath)" } }, ReadOnly, RemoveDeletedFiles, Enabled, State
             $infoObject += [PSCustomObject]@{
