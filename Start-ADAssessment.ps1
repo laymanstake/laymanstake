@@ -95,6 +95,46 @@ function Write-Log {
     } until ( $isWritten )
 }
 
+function Get-DFSInventory {
+    param (
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+    )
+
+    Try {
+        $DFSNRoots = Get-dfsnroot -Domain $DomainName | Where-Object { $_.State -eq "Online" } | Select-Object Path, Type
+    }
+    Catch {
+    }
+
+    $infoObject = @()
+
+    ForEach ($DFSNRoot in $DFSNRoots) {
+        $Namespaces = Get-DfsnFolder -Path ($DFSNRoot.Path + "\*") | Select-Object Path, State
+
+        ForEach ($NameSpace in $NameSpaces) {
+            $RGGroup = (Get-DFSReplicatedFolder -FolderName ($NameSpace.Path -split '\\' | Select-Object -Last 1) -DomainName $DomainName | Select-Object GroupName).GroupName
+            $HoursReplicated = (Get-DfsrGroupSchedule -GroupName $RGGroup -DomainName $DomainName | Select-Object HoursReplicated).HoursReplicated
+            $Members = Get-DfsrMembership -GroupName $RGGroup -DomainName $Domainname | Select-Object DFSNPath, @{l = "ContentPath"; e = { "$($_.Computername) :: $($_.ContentPath)" } }, ReadOnly, RemoveDeletedFiles, Enabled, State
+            $infoObject += [PSCustomObject]@{
+                DFSNRoot             = $DFSNRoot.Path
+                DFSNRootType         = $DFSNRoot.Type
+                NamespacePath        = $NameSpace.Path
+                NamespaceState       = $NameSpace.State
+                ReplicationGroupName = $RGGroup
+                ShareNames           = $Members.DFSNPath -join "`n"
+                ContentPath          = $Members.ContentPath -join "`n"
+                ReadOnly             = $Members.readOnly -join "`n"
+                RemoveDeletedFiles   = $Members.RemoveDeletedFiles -join "`n"
+                Enabled              = $Members.Enabled -join "`n"
+                HoursReplicated      = $HoursReplicated
+                State                = $Members.State -join "`n"
+            }
+        }
+    }
+
+    Return $infoObject    
+}
+
 
 # This function retrieves detailed information about trust relationships in the Active Directory domain, including trust type and direction.
 Function Get-ADTrustDetails {
@@ -2600,7 +2640,7 @@ Function Get-ADForestDetails {
         Write-Log -logtext $message -logpath $logpath
     }    
     
-    $PKISummary = ($PKIDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Certificate servers Summary</h2>") -replace '<td>SHA1RSA</td>', '<td bgcolor="red">SHA1RSA</td>'  -replace "`n", "<br>"
+    $PKISummary = ($PKIDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Certificate servers Summary</h2>") -replace '<td>SHA1RSA</td>', '<td bgcolor="red">SHA1RSA</td>' -replace "`n", "<br>"
     If ($ADSyncDetails) {
         $ADSyncSummary = ($ADSyncDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>ADSync servers Summary</h2>") -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>'
     }
