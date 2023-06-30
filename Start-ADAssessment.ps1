@@ -105,6 +105,7 @@ function Get-DFSInventory {
         $DFSNRoots = Get-dfsnroot -Domain $DomainName -ErrorAction SilentlyContinue | Where-Object { $_.State -eq "Online" } | Select-Object Path, Type
     }
     Catch {
+        Write-Output $_.Exception.Message
     }
 
     $ReplicatedFolders = Get-DfsReplicatedFolder -DomainName $DomainName -ErrorAction SilentlyContinue | Select-Object DFSNPath, GroupName -Unique
@@ -130,7 +131,9 @@ function Get-DFSInventory {
                         try {
                             $Path = Get-WmiObject Win32_Share -filter "Name LIKE '$Sharename'" -ComputerName $ServerName -ErrorAction SilentlyContinue
                         }
-                        catch {}
+                        catch {
+                            Write-Output $_.Exception.Message
+                        }
                     }
 
                     if ($Path) { 
@@ -168,7 +171,14 @@ function Get-DFSInventory {
         }
     }
 
-    Return $infoObject    
+    $RGGroupDetails = (Get-DfsReplicationGroup -DomainName $DomainName).GroupName | ForEach-Object { Get-DfsrMembership -GroupName $_ -DomainName $DomainName } | Select-Object GroupName, Computername, FolderName, ContentPath, ReadOnly, State
+
+    $DFSDetails += [PSCustomObject]@{
+        NameSpace        = $infoObject
+        ReplicationGroup = $RGGroupDetails
+    }
+
+    Return $DFSDetails
 }
 
 
