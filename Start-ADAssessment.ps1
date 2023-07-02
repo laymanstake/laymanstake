@@ -294,22 +294,24 @@ Function Get-ADFSDetails {
             
         }
         
-        if (($ADFSproperties[0]).Role -eq "PrimaryComputer") {
-            $isMaster = $true
-        }
-        else {
-            $isMaster = $false
-        }
-        
-        $serverInfo = [PSCustomObject]@{
-            ServerName      = $server
-            OperatingSystem = (Get-ADComputer $server -server $PDC -Credential $Credential -properties OperatingSystem).OperatingSystem
-            IsMaster        = $isMaster
-            ADFSName        = $ADFSproperties[1]
-            Certificate     = ($ADFSproperties[2], $ADFSproperties[3], $ADFSproperties[4]) -join "`n"
-        }
+        if ($ADFSproperties) {
+            if (($ADFSproperties[0]).Role -eq "PrimaryComputer") {
+                $isMaster = $true
+            }
+            else {
+                $isMaster = $false
+            }
 
-        $ADFSServerDetails += $serverInfo
+            $serverInfo = [PSCustomObject]@{
+                ServerName      = $server
+                OperatingSystem = (Get-ADComputer $server -server $PDC -Credential $Credential -properties OperatingSystem).OperatingSystem
+                IsMaster        = $isMaster
+                ADFSName        = $ADFSproperties[1]
+                Certificate     = ($ADFSproperties[2], $ADFSproperties[3], $ADFSproperties[4]) -join "`n"
+            }
+
+            $ADFSServerDetails += $serverInfo
+        }
     }
 
     foreach ($server in $aadconnectServers) {        
@@ -321,36 +323,38 @@ Function Get-ADFSDetails {
             Write-Log -logtext "ADSync Server - Could not open remote regitry on $server : $($_.Exception.Message)" -logpath $logpath
         }
         
-        if (Test-WSMan -ComputerName $server -ErrorAction SilentlyContinue) {
-            try {
-                $ADSyncVersion = (Get-CimInstance -ClassName Cim_DataFile -ComputerName $server -Filter "Name='$InstallPath'" -ErrorAction SilentlyContinue).Version
-                if (!$ADSyncVersion) { throw }
+        if (InstallPath) {
+            if (Test-WSMan -ComputerName $server -ErrorAction SilentlyContinue) {
+                try {
+                    $ADSyncVersion = (Get-CimInstance -ClassName Cim_DataFile -ComputerName $server -Filter "Name='$InstallPath'" -ErrorAction SilentlyContinue).Version
+                    if (!$ADSyncVersion) { throw }
+                }
+                catch {
+                    Write-Log -logtext "ADSync Server - Could not read ADSync version on $server : $($_.Exception.Message)" -logpath $logpath
+                }
+            }
+            else {
+                $ADSyncVersion = "Access denied"
+                Write-Log -logtext "ADSync Server - PS remoting NOT supported on $server : $($_.Exception.Message)" -logpath $logpath
+            }
+
+            Try {
+                $ConnectorName = invoke-command -ComputerName $server -ScriptBlock { (Get-ADSyncConnector).Name[0] } -ErrorAction SilentlyContinue
             }
             catch {
-                Write-Log -logtext "ADSync Server - Could not read ADSync version on $server : $($_.Exception.Message)" -logpath $logpath
+                Write-Log -logtext "ADSync Server - Could not read ADSync Connector on $server : $($_.Exception.Message)" -logpath $logpath
             }
-        }
-        else {
-            $ADSyncVersion = "Access denied"
-            Write-Log -logtext "ADSync Server - PS remoting NOT supported on $server : $($_.Exception.Message)" -logpath $logpath
-        }
 
-        Try {
-            $ConnectorName = invoke-command -ComputerName $server -ScriptBlock { (Get-ADSyncConnector).Name[0] } -ErrorAction SilentlyContinue
-        }
-        catch {
-            Write-Log -logtext "ADSync Server - Could not read ADSync Connector on $server : $($_.Exception.Message)" -logpath $logpath
-        }
+            $Info = [PSCustomObject]@{
+                ServerName      = $server
+                OperatingSystem = (Get-ADComputer $server -server $PDC -Credential $Credential -properties OperatingSystem).OperatingSystem            
+                ADSyncVersion   = $ADSyncVersion
+                Connection      = $ConnectorName
+                IsActive        = (Get-Service -ComputerName $Server -Name ADSync -ErrorAction SilentlyContinue).Status -eq "Running"
+            }
 
-        $Info = [PSCustomObject]@{
-            ServerName      = $server
-            OperatingSystem = (Get-ADComputer $server -server $PDC -Credential $Credential -properties OperatingSystem).OperatingSystem            
-            ADSyncVersion   = $ADSyncVersion
-            Connection      = $ConnectorName
-            IsActive        = (Get-Service -ComputerName $Server -Name ADSync -ErrorAction SilentlyContinue).Status -eq "Running"
+            $AADCServerDetails += $Info
         }
-
-        $AADCServerDetails += $Info
     }
     
     return $AADCServerDetails, $ADFSServerDetails 
@@ -2167,7 +2171,7 @@ function New-BaloonNotification {
     }
     catch {}
     $tip.ShowBalloonTip(10000) # Even if we set it for 1000 milliseconds, it usually follows OS minimum 10 seconds
-    Start-Sleep -s 1
+    Start-Sleep -Milliseconds 10
     
     $tip.Dispose() # Important to dispose otherwise the icon stays in notifications till reboot
     Get-EventSubscriber -SourceIdentifier "BalloonClicked_event"  -ErrorAction SilentlyContinue | Unregister-Event # In case if the Event Subscription is not disposed
@@ -2805,7 +2809,7 @@ switch ($choice) {
     }
     default {
         Write-Output "Incorrect reponse, script terminated"
-        Start-Sleep 2
+        Start-Sleep -Milliseconds 10
         break
     }
 }
