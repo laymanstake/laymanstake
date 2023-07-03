@@ -45,6 +45,14 @@ else {
     $DHCPFlag = $false
 }
 
+if (Get-Module -ListAvailable -Name DFSN) {    
+    Import-Module DFSN
+    $DFSFlag = $true
+}
+else {
+    $DFSFlag = $false
+}
+
 # Output formating options
 $logopath = "https://camo.githubusercontent.com/239d9de795c471d44ad89783ec7dc03a76f5c0d60d00e457c181b6e95c6950b6/68747470733a2f2f6e69746973686b756d61722e66696c65732e776f726470726573732e636f6d2f323032322f31302f63726f707065642d696d675f32303232303732335f3039343534372d72656d6f766562672d707265766965772e706e67"
 $ReportPath1 = "$env:USERPROFILE\desktop\ADReport_$(get-date -Uformat "%Y%m%d-%H%M%S").html"
@@ -155,8 +163,7 @@ function Get-DFSInventory {
             }
             
             $infoObject += [PSCustomObject]@{
-                DFSNRoot             = $DFSNRoot.Path
-                DFSNRootType         = $DFSNRoot.Type
+                DFSNRoot             = $DFSNRoot.Path                
                 NamespacePath        = $_.Path
                 NamespaceState       = $_.State
                 ReplicationGroupName = $RGGroup
@@ -171,7 +178,11 @@ function Get-DFSInventory {
         }
     }
 
-    $RGGroupDetails = (Get-DfsReplicationGroup -DomainName $DomainName).GroupName | ForEach-Object { Get-DfsrMembership -GroupName $_ -DomainName $DomainName } | Select-Object GroupName, Computername, FolderName, ContentPath, ReadOnly, State
+    $RGGroups = (Get-DfsReplicationGroup -DomainName $DomainName).GroupName
+    
+    if ($RGGroups) {
+        $RGGroupDetails = $RGGroups | ForEach-Object { Get-DfsrMembership -GroupName $_ -DomainName $DomainName } | Select-Object GroupName, Computername, FolderName, ContentPath, ReadOnly, State
+    }
 
     $DFSDetails += [PSCustomObject]@{
         NameSpace        = $infoObject
@@ -253,6 +264,7 @@ Function Get-ADFSDetails {
     $aadconnectServers = @()
     $ADFSServerDetails = @()
     $AADCServerDetails = @()
+    $InstallPath = $null
 
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
 
@@ -323,7 +335,7 @@ Function Get-ADFSDetails {
             Write-Log -logtext "ADSync Server - Could not open remote regitry on $server : $($_.Exception.Message)" -logpath $logpath
         }
         
-        if (InstallPath) {
+        if ($InstallPath) {
             if (Test-WSMan -ComputerName $server -ErrorAction SilentlyContinue) {
                 try {
                     $ADSyncVersion = (Get-CimInstance -ClassName Cim_DataFile -ComputerName $server -Filter "Name='$InstallPath'" -ErrorAction SilentlyContinue).Version
@@ -2171,7 +2183,7 @@ function New-BaloonNotification {
     }
     catch {}
     $tip.ShowBalloonTip(10000) # Even if we set it for 1000 milliseconds, it usually follows OS minimum 10 seconds
-    Start-Sleep -Milliseconds 10
+    Start-Sleep -seconds 1
     
     $tip.Dispose() # Important to dispose otherwise the icon stays in notifications till reboot
     Get-EventSubscriber -SourceIdentifier "BalloonClicked_event"  -ErrorAction SilentlyContinue | Unregister-Event # In case if the Event Subscription is not disposed
@@ -2380,8 +2392,8 @@ Function Get-ADForestDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)]$ChildDomain,
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$ADFS,
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$DHCP,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$GPO
-
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$GPO,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$DFS
     )    
 
     # Collecting information about current Forest configuration
@@ -2509,6 +2521,7 @@ Function Get-ADForestDetails {
     $DCInventory = @()
     $ADHealth = @()
     $ReplicationHealth = @()
+    $DFSDetails = @()
 
     if (!($forestcheck)) {
         $allDomains = $ChildDomain
@@ -2605,7 +2618,21 @@ Function Get-ADForestDetails {
             $message = "Lookup for ADFS ($($ADFSDetail.SERVERNAME.count)) / ADSync ($($ADSyncDetail.SERVERNAME.count)) server in domain: $Domain done."
             New-BaloonNotification -title "Information" -message $message
             Write-Log -logtext $message -logpath $logpath        
+        }        
+
+        if ($DFS -AND $DFSFlag) {
+            $message = "Looking for DFS and DFS replication group inventory in domain $($Domain). It may take long time to complete"
+            New-BaloonNotification -title "Caution" -message $message -icon Warning
+            Write-Log -logtext $message -logpath $logpath
+
+            $DFSDetails += Get-DFSInventory -DomainName $domain
+
+            $message = "Lookup for DFS inventory in $($Domain) done."
+            New-BaloonNotification -title "Information" -message $message
+            Write-Log -logtext $message -logpath $logpath            
         }
+
+        
         
         $message = "Working over domain: $Domain DNS related details."
         New-BaloonNotification -title "Information" -message $message
@@ -2741,12 +2768,16 @@ Function Get-ADForestDetails {
     $SysvolNetlogonPermSummary = ($SysvolNetlogonPermissions | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Sysvol and Netlogon Permissions Summary</h2>") -replace "`n", "<br>"
     $SecuritySummary = ($SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>") -replace "`n", "<br>" -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>' -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
     $DCSummary = ($DCInventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers Inventory</h2>") -replace "`n", "<br>"
+    if ($DFS -AND $DFSFlag) {
+        $DFSSummary = ($DFSDetails.NameSpace | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DFS Namespace Inventory</h2>") -replace "`n", "<br>"
+        $DFSRepGroupSummary = ($DFSDetails.ReplicationGroup | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DFS Replication Group Inventory</h2>") -replace "`n", "<br>"
+    }
     
     $message = "Forest $forest details collected now, preparing html report"
     New-BaloonNotification -title "Information" -message $message
     Write-Log -logtext $message -logpath $logpath
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DomainHealthSumamry $ReplhealthSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory $DCSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DomainHealthSumamry $ReplhealthSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory $DCSummary $DFSSummary $DFSRepGroupSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath
 }
 
@@ -2773,7 +2804,7 @@ switch ($choice) {
         }
 
         if ($test) {
-            Get-ADForestDetails -Credential $Credential -ADFS -DHCP -GPO
+            Get-ADForestDetails -Credential $Credential -ADFS -DHCP -GPO -DFS
         }
         else {
             Write-Host "Credentials not working"
@@ -2809,7 +2840,7 @@ switch ($choice) {
     }
     default {
         Write-Output "Incorrect reponse, script terminated"
-        Start-Sleep -Milliseconds 10
+        Start-Sleep -seconds 1
         break
     }
 }
