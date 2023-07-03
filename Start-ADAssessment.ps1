@@ -14,6 +14,46 @@
     It should be run as administrator and preferably Enterprise Administrator to get complete data. Its advised to run in demonstration environment to be sure first
 
     Disclaimer: This script is designed to only read data from the domain and should not cause any problems or change configurations but author do not claim to be responsible for any issues. Do due dilligence before running in the production environment
+
+    LIST OF FUNCTIONS
+    1.  Write-Log                       # This function creates log entries for the major steps in the script.
+    2.  Get-DFSInventory                # This function creates DFS inventory for the given domain.
+    3.  Get-ADTrustDetails              # This function retrieves detailed information about trust relationships in the Active Directory domain, including trust type and direction.
+    4.  Get-ADFSDetails                 # This function gathers information about Active Directory Federation Services (ADFS), including ADFS\ ADSync servers, certificates, and endpoints.
+    5.  Get-PKIDetails                  # This function collects information about certificate authorities.
+    6.  Get-ADDNSDetails                # This function retrieves detailed information about the Active Directory DNS configuration.
+    7.  Get-ADDNSZoneDetails            # This function provides detailed information about Active Directory DNS zones, including zone properties, zone transfers, and DNS server settings.
+    8.  Get-ADGroupMemberRecursive      # This function recursively retrieves all members of an Active Directory group, including nested groups and their members.  
+    9.  Get-AdminCountDetails           # This function identifies user accounts with the "AdminCount" attribute set, which can indicate privileged accounts and also which should not have admincount set.
+    10. Get-ADDHCPDetails               # Return the details of DHCP Servers
+    11. Get-DHCPInventory               # This function gathers information about DHCP servers in the Active Directory domain, including server configurations, scopes, and reservations.
+    12. Get-EmptyOUDetails              # This function identifies empty Organizational Units (OUs) in the Active Directory domain.
+    13. Get-ADObjectsToClean            # This function identifies Active Directory objects that can be cleaned up, such as orphaned and lingering objects from given domain.
+    14. Get-ADGPOSummary                # This function summarizes Group Policy Objects (GPOs) in the Active Directory domain, including linked locations, and scop
+    15. Get-GPOInventory                # This function provides an inventory of GPOs in the Active Directory domain, including their names, scope, wmi filters and applied locations.
+    16. Get-ADPasswordPolicy            # This function retrieves the password policy settings configured in the Active Directory domain.
+    17. Get-FineGrainedPasswordPolicy   # This function retrieves the settings of fine-grained password policies in the Active Directory domain.
+    18. Get-SMBv1Status                 # This function checks the status of SMBv1 (Server Message Block version 1) on the local or remote systems.
+    19. Get-ADDomainDetails             # This function gathers detailed information about the Active Directory domain, including domain name, domain controllers, forest, and domain functional levels.
+    20. Get-ADSiteDetails               # This function provides detailed information about Active Directory sites, including site names, subnet assignments, and site links.
+    21. Get-PrivGroupDetails            # This function retrieves information about privileged groups in the Active Directory domain.
+    22. Get-ADGroupDetails              # This function retrieves detailed information about Active Directory groups.
+    23. Get-ADUserDetails               # This function gathers detailed information about Active Directory user accounts, including user properties and account status.
+    24. Get-BuiltInUserDetails          # This function retrieves information about built-in user accounts in the Active Directory domain.
+    25. Get-OrphanedFSP                 # This function identifies Orphaned Foreign Security Principals for the given domain, be cautious as domain connectivity issues can flag false positive.
+    26. Get-DomainServerDetails         # This function gathers detailed information about servers in the Active Directory domain, including computer properties, operating system details, and stale info.
+    27. Get-DomainClientDetails         # This function gathers detailed information about client computers in the Active Directory domain, including computer properties, operating system details, and stale info.
+    28. Start-SecurityCheck             # The function performs various checks and assessments to identify unsecured configurations, potential security risks, and other security-related aspects.
+    29. Get-UnusedNetlogonScripts       # This function identifies unused Netlogon scripts in the Active Directory domain.
+    30. Get-PotentialSvcAccount         # YET TO COMPLETE THE FUNCTION
+    31. Get-SysvolNetlogonPermissions   # This function retrieves the permissions set on the SYSVOL and NETLOGON shares in the Active Directory domain.
+    32. Get-SystemInfo                  # This function collects detailed system information from client computers in the Active Directory domain, including hardware, software, and network configuration.
+    33. New-Email                       # This function generates an email message.
+    34. New-BaloonNotification          # This function creates a balloon notification to display on client computers.
+    35. Test-ADHealth                   # This function performs a health check of the Active Directory environment, including checks for replication, DNS, AD trust, and other common issues.
+    36. Get-ADReplicationHealth         # This function checks the replication health of domain controllers in the Active Directory domain.
+    37. Get-ADForestDetails             # This function retrieves detailed information about the Active Directory forest using the earlier defined functions and generates the html report.
+
 #>
 
 <#
