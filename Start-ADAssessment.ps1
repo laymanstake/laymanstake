@@ -163,7 +163,7 @@ function Get-DFSInventory {
 
     $infoObject = @()
     $maxParallelJobs = 50
-    $jobs = @()
+    $jobs = @()    
 
     ForEach ($DFSNRoot in $DFSNRoots) {
         $Namespaces = Get-DfsnFolder -Path ($DFSNRoot.Path + "\*") -ErrorAction SilentlyContinue | Select-Object Path, State
@@ -171,13 +171,14 @@ function Get-DFSInventory {
         $Namespaces | ForEach-Object {
             $NamespacePath = $_.Path              
             $ShareNames = ($NamespacePath | ForEach-Object { Get-DFSNFolderTarget -Path $_ } | Select-Object TargetPath).TargetPath 
+            
             $ShareNames | ForEach-Object {
                 while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
                     Start-Sleep -Milliseconds 500  # Wait for 0.5 seconds before checking again
                 }
 
                 $ScriptBlock = {
-                    param($Share)
+                    param($Share, $DomainName)
                         
                     $ShareName = ($Share.Split('\\') | select-Object -Last 1)                    
                     $ServerName = ($Share.split("\\")[2])
@@ -196,23 +197,24 @@ function Get-DFSInventory {
                     }
 
                     if ($Path) { 
-                        "$($ServerName) :: $($Path.Path)"
+                        "$($ServerName)::$($Path.Path)"
                     }
                     else { 
                         "$($ServerName) not reachable"
                     } 
                 }
 
-                $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $_                    
+                $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $_, $DomainName
             }
 
             $null = Wait-Job -Job $jobs
 
+            $result = @()
             foreach ($job in $jobs) {
-                $result = Receive-Job -Job $job             
+                $result += Receive-Job -Job $job             
             }
                     
-            $ContentPath = $result            
+            $ContentPath = $result
 
             $RGGroup = ($ReplicatedFolders | Where-Object { $_.DFSNPath -eq $NamespacePath -AND $_.DFSNPath -ne "" }).Groupname
             if ($RGGroup) {
