@@ -255,7 +255,6 @@ function Get-DFSInventory {
     Return $DFSDetails
 }
 
-
 # This function retrieves detailed information about trust relationships in the Active Directory domain, including trust type and direction.
 Function Get-ADTrustDetails {
     [CmdletBinding()]
