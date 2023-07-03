@@ -161,6 +161,10 @@ function Get-DFSInventory {
     $HoursReplicated = (Get-DfsrGroupSchedule -DomainName $DomainName -ErrorAction SilentlyContinue | Select-Object HoursReplicated).HoursReplicated
     $Members = Get-DfsrMembership -DomainName $Domainname -ErrorAction SilentlyContinue | Select-Object ReadOnly, RemoveDeletedFiles, Enabled, State
 
+    $message = "DFS related details collected from Domain $($Domain). Looking for granular details now."
+    New-BaloonNotification -title "Caution" -message $message -icon Warning
+    Write-Log -logtext $message -logpath $logpath
+
     $infoObject = @()
     $maxParallelJobs = 50
     $jobs = @()
