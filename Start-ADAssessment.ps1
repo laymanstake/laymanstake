@@ -145,7 +145,7 @@ function Write-Log {
 }
 
 # This function creates DFS inventory for the given domain.
-function Get-DFSInventory {
+function Get-DFSInventory { 
     param (
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
     )
@@ -158,20 +158,30 @@ function Get-DFSInventory {
     }
 
     $ReplicatedFolders = Get-DfsReplicatedFolder -DomainName $DomainName -ErrorAction SilentlyContinue | Select-Object DFSNPath, GroupName -Unique
+    $HoursReplicated = (Get-DfsrGroupSchedule -DomainName $DomainName -ErrorAction SilentlyContinue | Select-Object HoursReplicated).HoursReplicated
+    $Members = Get-DfsrMembership -DomainName $Domainname -ErrorAction SilentlyContinue | Select-Object ReadOnly, RemoveDeletedFiles, Enabled, State
 
     $infoObject = @()
+    $maxParallelJobs = 50
+    $jobs = @()
 
     ForEach ($DFSNRoot in $DFSNRoots) {
         $Namespaces = Get-DfsnFolder -Path ($DFSNRoot.Path + "\*") -ErrorAction SilentlyContinue | Select-Object Path, State
 
         $Namespaces | ForEach-Object {
-            $NamespacePath = $_.Path            
-            $ShareNames = ($NamespacePath | ForEach-Object { Get-DFSNFolderTarget -Path $_ } | Select-Object TargetPath).TargetPath            
-            
-            $ContentPath = ($ShareNames | ForEach-Object { 
-                    $ShareName = ($_.Split('\\') | select-Object -Last 1)
+            $NamespacePath = $_.Path              
+            $ShareNames = ($NamespacePath | ForEach-Object { Get-DFSNFolderTarget -Path $_ } | Select-Object TargetPath).TargetPath |            
+            ForEach-Object {
+                while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
+                    Start-Sleep -Milliseconds 500  # Wait for 0.5 seconds before checking again
+                }
+
+                $ScriptBlock = {
+                    param($Share)
+                        
+                    $ShareName = ($Share.Split('\\') | select-Object -Last 1)                    
+                    $ServerName = ($Share.split("\\")[2])
                     
-                    $ServerName = ($_.split("\\")[2])
                     If (-Not($ServerName -match "[.]")) { 
                         $ServerName = $ServerName + "." + $DomainName
                     }
@@ -190,17 +200,29 @@ function Get-DFSInventory {
                     }
                     else { 
                         "$($ServerName) not reachable"
-                    } })
+                    } 
+                }
+
+                $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $_                    
+            }
+
+            $null = Wait-Job -Job $jobs
+
+            foreach ($job in $jobs) {
+                $result = Receive-Job -Job $job             
+            }
+                    
+            $ContentPath = $result            
 
             $RGGroup = ($ReplicatedFolders | Where-Object { $_.DFSNPath -eq $NamespacePath -AND $_.DFSNPath -ne "" }).Groupname
             if ($RGGroup) {
-                $HoursReplicated = (Get-DfsrGroupSchedule -GroupName $RGGroup -DomainName $DomainName -ErrorAction SilentlyContinue | Select-Object HoursReplicated).HoursReplicated
-                $Members = Get-DfsrMembership -GroupName $RGGroup -DomainName $Domainname -ErrorAction SilentlyContinue | Select-Object ReadOnly, RemoveDeletedFiles, Enabled, State
+                $RGHoursReplicated = ($HoursReplicated | Where-Object { $_.GroupName -eq $RGGroup } | Select-Object HoursReplicated).HoursReplicated
+                $RGMembers = $Members | Where-Object { $_.GroupName -eq $RGGroup } | Select-Object ReadOnly, RemoveDeletedFiles, Enabled, State
             }
             else {
                 $RGGroup = "No replication group found"
-                $HoursReplicated = "NA"
-                $Members = "NA"
+                $RGHoursReplicated = "NA"
+                $RGMembers = "NA"
             }
             
             $infoObject += [PSCustomObject]@{
@@ -210,20 +232,16 @@ function Get-DFSInventory {
                 ReplicationGroupName = $RGGroup
                 ShareNames           = $ShareNames -join "`n"
                 ContentPath          = $ContentPath -join "`n"
-                ReadOnly             = $Members.readOnly -join "`n"
-                RemoveDeletedFiles   = $Members.RemoveDeletedFiles -join "`n"
-                Enabled              = $Members.Enabled -join "`n"
-                HoursReplicated      = $HoursReplicated
-                State                = $Members.State -join "`n"
+                ReadOnly             = $RGMembers.readOnly -join "`n"
+                RemoveDeletedFiles   = $RGMembers.RemoveDeletedFiles -join "`n"
+                Enabled              = $RGMembers.Enabled -join "`n"
+                HoursReplicated      = $RGHoursReplicated
+                State                = $RGMembers.State -join "`n"
             }
         }
     }
 
-    $RGGroups = (Get-DfsReplicationGroup -DomainName $DomainName).GroupName
-    
-    if ($RGGroups) {
-        $RGGroupDetails = $RGGroups | ForEach-Object { Get-DfsrMembership -GroupName $_ -DomainName $DomainName } | Select-Object GroupName, Computername, FolderName, ContentPath, ReadOnly, State
-    }
+    $RGGroupDetails = Get-DfsrMembership -DomainName $DomainName | Select-Object GroupName, Computername, FolderName, ContentPath, ReadOnly, State
 
     $DFSDetails += [PSCustomObject]@{
         NameSpace        = $infoObject
