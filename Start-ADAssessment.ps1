@@ -260,6 +260,7 @@ Function Get-ADFSDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
     
+    $maxParallelJobs = 50
     $adfsServers = @()
     $aadconnectServers = @()
     $ADFSServerDetails = @()
@@ -267,31 +268,50 @@ Function Get-ADFSDetails {
     $InstallPath = $null
 
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-
-    $i = 0
-
+    
+    $jobs = @()
+    
     # Filtering out disabled computers or stale computers
-    Get-ADComputer -Filter { Enabled -eq $True -and OperatingSystem -like "*Server*" } -Server $DomainName -Credential $Credential -Properties OperatingSystem, LastLogonDate | Where-Object { $_.LastLogonDate -gt (Get-Date).AddDays(-30) } |
+    Get-ADComputer -Filter { Enabled -eq $True -and OperatingSystem -like "*Server*" } -Server $DomainName  -Properties OperatingSystem, LastLogonDate | Where-Object { $_.LastLogonDate -gt (Get-Date).AddDays(-30) } |
     ForEach-Object {
-        $computer = $_.Name
-        try {            
-            $service = ((Get-Service -ComputerName $computer -Name adfssrv -ErrorAction SilentlyContinue).Name , (Get-Service -ComputerName $computer -Name adsync -ErrorAction SilentlyContinue).Name )
-        }
-        catch {
-            Write-Log -logtext "Could get Service details from $computer : $($_.Exception.Message)" -logpath $logpath
-        }
-        if ($service[0] -eq "adfssrv") {
-            $adfsServers += $computer
-        }
-        if ($service[1] -eq "adsync" ) {
-            $aadconnectServers += $computer
+        while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
+            Start-Sleep -Milliseconds 500  # Wait for 0.5 seconds before checking again
+        }        
+
+        $ScriptBlock = {
+            param($computer)
+            
+            try {            
+                $service = ((Get-Service -ComputerName $computer -Name adfssrv -ErrorAction SilentlyContinue).Name , (Get-Service -ComputerName $computer -Name adsync -ErrorAction SilentlyContinue).Name )                
+            }
+            catch {
+                Write-Output "Could get Service details from $computer : $($_.Exception.Message)"
+            }           
+
+            if ($service) {
+                if ($service[0] -eq "adfssrv") {
+                    $adfs = $computer                   
+                }
+                if ($service[1] -eq "adsync" ) {                    
+                    $aad = $computer
+                }
+            }
+
+            Return $adfs, $aad
         }
 
-        $i++
-        if (($i % 10) -eq 1) {
-            $message = "$i servers checked so far."
-            New-BaloonNotification -title "Information" -message $message
-            Write-Log -logtext $message -logpath $logpath
+        $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $_.Name
+    }
+
+    $null = Wait-Job -Job $jobs
+
+    foreach ($job in $jobs) {
+        $result = Receive-Job -Job $job    
+        if ($result[0]) {
+            $adfsServers += $result[0]
+        }
+        if ($result[1]) {
+            $aadconnectservers += $result[1]
         }
     }
 
