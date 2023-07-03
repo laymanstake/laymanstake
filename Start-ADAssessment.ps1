@@ -158,12 +158,8 @@ function Get-DFSInventory {
     }
 
     $ReplicatedFolders = Get-DfsReplicatedFolder -DomainName $DomainName -ErrorAction SilentlyContinue | Select-Object DFSNPath, GroupName -Unique
-    $HoursReplicated = (Get-DfsrGroupSchedule -DomainName $DomainName -ErrorAction SilentlyContinue | Select-Object HoursReplicated).HoursReplicated
-    $Members = Get-DfsrMembership -DomainName $Domainname -ErrorAction SilentlyContinue | Select-Object ReadOnly, RemoveDeletedFiles, Enabled, State
-
-    $message = "DFS related details collected from Domain $($Domain). Looking for granular details now."
-    New-BaloonNotification -title "Caution" -message $message -icon Warning
-    Write-Log -logtext $message -logpath $logpath
+    $HoursReplicated = Get-DfsrGroupSchedule -DomainName $DomainName -ErrorAction SilentlyContinue | Select-Object GroupName, HoursReplicated
+    $Members = Get-DfsrMembership -DomainName $Domainname -ErrorAction SilentlyContinue | Select-Object GroupName, ReadOnly, RemoveDeletedFiles, Enabled, State
 
     $infoObject = @()
     $maxParallelJobs = 50
@@ -174,8 +170,8 @@ function Get-DFSInventory {
 
         $Namespaces | ForEach-Object {
             $NamespacePath = $_.Path              
-            $ShareNames = ($NamespacePath | ForEach-Object { Get-DFSNFolderTarget -Path $_ } | Select-Object TargetPath).TargetPath |            
-            ForEach-Object {
+            $ShareNames = ($NamespacePath | ForEach-Object { Get-DFSNFolderTarget -Path $_ } | Select-Object TargetPath).TargetPath 
+            $ShareNames | ForEach-Object {
                 while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
                     Start-Sleep -Milliseconds 500  # Wait for 0.5 seconds before checking again
                 }
