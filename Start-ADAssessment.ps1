@@ -3006,7 +3006,7 @@ switch ($choice) {
     }
 }
 
-$null = $null = Get-Job | Remove-Job -Force # Removing all jobs which were ran during course of the script, if any pending
+$null = Get-Job | Remove-Job -Force # Removing all jobs which were ran during course of the script, if any pending
 
 <# $MailCredential = Get-Credential -Message "Enter the password for the email account: " -UserName "contactfor_nitish@hotmail.com"
 
