@@ -1032,6 +1032,7 @@ Function Get-GPOInventory {
     }
 
     $GPOs = Get-GPO -All -Domain $DomainName
+    $ROOTGPOS = (Get-ADDomain -Server $DomainName -Credential $Credential).LinkedGroupPolicyObjects | ForEach-Object { [regex]::Match($_, '{.*?}').Value.Trim('{}') }
 
     $LinkedGPOs = foreach ($GPO in $GPOs) {
         $GPOLinks = Get-ADOrganizationalUnit -Filter "gpLink -like '*$($GPO.Id.ToString('B'))*'" -server $PDC | Select-Object -ExpandProperty DistinguishedName
@@ -1042,6 +1043,10 @@ Function Get-GPOInventory {
         $GPO = $_
         $Permissions = Get-GPPermission -Name $_.DisplayName -All -DomainName $DomainName -server $PDC | Select-Object @{l = "Permission"; e = { "$($_.Trustee.Name), $($_.Trustee.SIDType), $($_.permission), Denied: $($_.Denied)" } }    
         $Links = ($LinkedGPOs | Where-Object { $_.DisplayName -eq $GPO.DisplayName }).Links
+
+        if ($GPO.ID -in $RootGPOs) {
+            $Links += $ADDomain.DistinguishedName
+        }
 
         try {
             $wmifilterid = ($_.WmiFilter.Path -split '"')[1]
