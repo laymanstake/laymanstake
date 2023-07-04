@@ -95,9 +95,9 @@ else {
 }
 
 # Output formating options
-$logopath = "https://atos.net/content/assets/global-images/atos-logo-blue-2022.svg"
+$logopath = "https://camo.githubusercontent.com/239d9de795c471d44ad89783ec7dc03a76f5c0d60d00e457c181b6e95c6950b6/68747470733a2f2f6e69746973686b756d61722e66696c65732e776f726470726573732e636f6d2f323032322f31302f63726f707065642d696d675f32303232303732335f3039343534372d72656d6f766562672d707265766965772e706e67"
 $ReportPath1 = "$env:USERPROFILE\desktop\ADReport_$(get-date -Uformat "%Y%m%d-%H%M%S").html"
-$CopyRightInfo = " @Copyright ATOS <a href='https://atos.net'>Visit atos.net</a>"
+$CopyRightInfo = " @Copyright Nitish Kumar <a href='https://github.com/laymanstake'>Visit nitishkumar.net</a>"
 [bool]$forestcheck = $false
 $logpath = "$env:USERPROFILE\desktop\ADReport_$(get-date -Uformat "%Y%m%d-%H%M%S").txt"
 
@@ -163,7 +163,7 @@ function Get-DFSInventory {
 
     $infoObject = @()
     $maxParallelJobs = 50
-    $jobs = @()
+    $jobs = @()    
 
     ForEach ($DFSNRoot in $DFSNRoots) {
         $Namespaces = Get-DfsnFolder -Path ($DFSNRoot.Path + "\*") -ErrorAction SilentlyContinue | Select-Object Path, State
@@ -171,13 +171,14 @@ function Get-DFSInventory {
         $Namespaces | ForEach-Object {
             $NamespacePath = $_.Path              
             $ShareNames = ($NamespacePath | ForEach-Object { Get-DFSNFolderTarget -Path $_ } | Select-Object TargetPath).TargetPath 
+            
             $ShareNames | ForEach-Object {
                 while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
                     Start-Sleep -Milliseconds 500  # Wait for 0.5 seconds before checking again
                 }
 
                 $ScriptBlock = {
-                    param($Share)
+                    param($Share, $DomainName)
                         
                     $ShareName = ($Share.Split('\\') | select-Object -Last 1)                    
                     $ServerName = ($Share.split("\\")[2])
@@ -196,23 +197,24 @@ function Get-DFSInventory {
                     }
 
                     if ($Path) { 
-                        "$($ServerName) :: $($Path.Path)"
+                        "$($ServerName)::$($Path.Path)"
                     }
                     else { 
                         "$($ServerName) not reachable"
                     } 
                 }
 
-                $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $_                    
+                $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $_, $DomainName
             }
 
             $null = Wait-Job -Job $jobs
 
+            $result = @()
             foreach ($job in $jobs) {
-                $result = Receive-Job -Job $job             
+                $result += Receive-Job -Job $job             
             }
                     
-            $ContentPath = $result            
+            $ContentPath = $result
 
             $RGGroup = ($ReplicatedFolders | Where-Object { $_.DFSNPath -eq $NamespacePath -AND $_.DFSNPath -ne "" }).Groupname
             if ($RGGroup) {
@@ -326,6 +328,7 @@ Function Get-ADFSDetails {
     $InstallPath = $null
 
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $null = $null = Get-Job | Remove-Job
     
     $jobs = @()
     
@@ -364,7 +367,8 @@ Function Get-ADFSDetails {
     $null = Wait-Job -Job $jobs
 
     foreach ($job in $jobs) {
-        $result = Receive-Job -Job $job    
+        $result = Receive-Job -Job $job
+        $null = Remove-Job -Job $job
         if ($result[0]) {
             $adfsServers += $result[0]
         }
@@ -461,6 +465,7 @@ Function Get-PKIDetails {
     $PKIDetails = New-Object psobject
     
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $ForestName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $null = $null = Get-Job | Remove-Job
     $PKI = Get-ADObject -Filter { objectClass -eq "pKIEnrollmentService" } -Server $PDC -Credential $Credential -SearchBase "CN=Enrollment Services,CN=Public Key Services,CN=Services,$((Get-ADRootDSE).ConfigurationNamingContext)"  -Properties DisplayName, DnsHostName | Select-Object DisplayName, DnsHostName, @{l = "OperatingSystem"; e = { (Get-ADComputer ($_.DNShostname -replace ".$ForestName") -Properties OperatingSystem -server $PDC -Credential $Credential).OperatingSystem } }, @{l = "IPv4Address"; e = { ([System.Net.Dns]::GetHostAddresses($_.DnsHostName) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n" } }
 
     If ($PKI) {        
@@ -508,7 +513,7 @@ Function Get-ADDNSDetails {
 
     $DNSServerDetails = @()
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = $null = Get-Job | Remove-Job    
     
     try {
         $DNSServers = (Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { Get-WmiObject  -Class Win32_serverfeature  -ComputerName $_.Name -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "DNS Server" } } | Select-Object Name, IPv4Address
@@ -563,6 +568,7 @@ Function Get-ADDNSZoneDetails {
 
     $DNSServerZoneDetails = @()
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $null = $null = Get-Job | Remove-Job
     
     $DNSZones = Get-DnsServerZone -ComputerName $PDC | Where-Object { -Not $_.IsReverseLookupZone } | Select-Object DistinguishedName, ZoneName, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, MasterServers, SecureSecondaries, SecondaryServers
 
@@ -626,7 +632,7 @@ Function Get-ADGroupMemberRecursive {
     
     $Domain = (Get-ADDomain -Identity $DomainName -Credential $Credential)
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = $null = Get-Job | Remove-Job
     try {
         $members = (Get-ADGroup -Identity $GroupName -Server $PDC -Credential $Credential -Properties Members).members
     }
@@ -663,7 +669,7 @@ Function Get-AdminCountDetails {
     )
     
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
     
     $protectedGroups = (Get-ADGroup -LDAPFilter "(&(objectCategory=group)(adminCount=1))" -Server $PDC -Credential $Credential).Name
     $ProtectedUsers = ($protectedGroups | ForEach-Object { Get-ADGroupMemberRecursive -GroupName $_ -DomainName $DomainName -Credential $Credential } | Sort-Object Name -Unique).Name
@@ -688,7 +694,8 @@ Function Get-ADDHCPDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
-    $PDC = (Get-ADDomain -Current LocalComputer).PDCEmulator    
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $null = Get-Job | Remove-Job
     $configPartition = (Get-ADforest).PartitionsContainer.Replace("CN=Partitions,", "")
     $AllDHCPServers = (Get-ADObject -SearchBase $configPartition -Filter "objectclass -eq 'dhcpclass' -AND Name -ne 'dhcproot'" -Server $PDC -Credential $Credential).Name
     $DHCPDetails = @()
@@ -751,9 +758,10 @@ Function Get-DHCPInventory {
                 $scopes = $null
                 $scopes = (Get-DhcpServerv4Scope -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue)
                 $Res = $scopes | ForEach-Object { 
-                    try{
+                    try {
                         Get-DHCPServerv4Lease -ComputerName $dhcp.DNSName -ScopeID $_.ScopeID 
-                    } catch {
+                    }
+                    catch {
                         Write-Log -logtext "Could not get reservation details for scope $($_.ScopeID) on DHCP Server $($dhcp.DNSName) : $($_.Exception.Message)" -logpath $logpath        
                     }
                 } | Select-Object ScopeId, IPAddress, HostName, Description, ClientID, AddressState
@@ -773,8 +781,10 @@ Function Get-DHCPInventory {
 
                 If ($null -ne $scopes) {                    
                     #getting global DNS settings, in case scopes are configured to inherit these settings
-                    try{    $GlobalDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
-                    } catch {   $GlobalDNSList = $null  }
+                    try {
+                        $GlobalDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
+                    }
+                    catch { $GlobalDNSList = $null }
                     
                     Try { $Option015 = [String](Get-DhcpServerv4OptionValue -OptionId 015 -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
                     Catch { $Option015 = "" }
@@ -830,8 +840,9 @@ Function Get-DHCPInventory {
                         $row.Exclusions = $Exclusions
                         $ScopeDNSList = $null
                         try {
-                        $ScopeDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
-                        } Catch {
+                            $ScopeDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
+                        }
+                        Catch {
                             $ScopeDNSList = $null
                         }
 
@@ -873,10 +884,11 @@ Function Get-DHCPInventory {
             }
             catch {
                 $DHCPStatus = (get-service -Name DHCPServer -ComputerName $dhcp.DNSName).Status
-                If($DHCPStatus -eq "Stopped"){
+                If ($DHCPStatus -eq "Stopped") {
                     Write-Log -logtext "DHCP Service not running on DHCP Server $($dhcp.DNSName)" -logpath $logpath
-                } else {
-                Write-Log -logtext "Could not get scopes etc details for DHCP Server $($dhcp.DNSName) : $($_.Exception.Message)" -logpath $logpath
+                }
+                else {
+                    Write-Log -logtext "Could not get scopes etc details for DHCP Server $($dhcp.DNSName) : $($_.Exception.Message)" -logpath $logpath
                 }
             }
         }
@@ -908,7 +920,7 @@ Function Get-EmptyOUDetails {
     )
 
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
 
     $AllOUs = Get-ADOrganizationalUnit -Filter * -Server $PDC -Credential $Credential -Properties CanonicalName
     $EmptyOUs = ($AllOUs | Where-Object { -not ( Get-ADObject -Filter * -SearchBase $_.Distinguishedname -SearchScope OneLevel -ResultSetSize 1 -Server $PDC -Credential $Credential) }).CanonicalName
@@ -934,7 +946,7 @@ Function Get-ADObjectsToClean {
     $ObjectsToClean = @()
     $Domain = Get-ADDomain -Identity $DomainName -Credential $Credential
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
 
     $orphanedObj = Get-ADObject -Filter * -SearchBase "cn=LostAndFound,$($Domain.DistinguishedName)" -SearchScope OneLevel -Server $PDC -Credential $Credential
     $lingConfReplObj = Get-ADObject -LDAPFilter "(cn=*\0ACNF:*)" -SearchBase $Domain.DistinguishedName -SearchScope SubTree -Server $PDC -Credential $Credential
@@ -959,16 +971,16 @@ Function Get-ADGPOSummary {
     )
     
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName ).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job -force
+    $null = Get-Job | Remove-Job -force
 
-    $AllGPOs = Get-ADObject -Filter {objectClass -eq 'groupPolicyContainer'} -Server $PDC -Credential $Credential -Properties Displayname, Created, Modified
+    $AllGPOs = Get-ADObject -Filter { objectClass -eq 'groupPolicyContainer' } -Server $PDC -Credential $Credential -Properties Displayname, Created, Modified
 
-    $ROOTGPOS = (Get-ADDomain -Server $DomainName -Credential $Credential).LinkedGroupPolicyObjects | ForEach-Object {[regex]::Match($_,'{.*?}').Value.Trim('{}')}
-    $OUGPOS = Get-ADOrganizationalUnit -LDAPFilter '(GPLink=*)' -server $PDC -Credential $Credential -Properties GPLink | Select-Object -ExpandProperty LinkedGroupPolicyObjects | ForEach-Object {($_ -split ',')[0].Substring(3).Trim('{}')} | Select-Object -Unique
+    $ROOTGPOS = (Get-ADDomain -Server $DomainName -Credential $Credential).LinkedGroupPolicyObjects | ForEach-Object { [regex]::Match($_, '{.*?}').Value.Trim('{}') }
+    $OUGPOS = Get-ADOrganizationalUnit -LDAPFilter '(GPLink=*)' -server $PDC -Credential $Credential -Properties GPLink | Select-Object -ExpandProperty LinkedGroupPolicyObjects | ForEach-Object { ($_ -split ',')[0].Substring(3).Trim('{}') } | Select-Object -Unique
 
-    $GPOsAtRootLevel = ($ROOTGPOS | ForEach-object {Get-GPO -Guid $_}).Displayname
+    $GPOsAtRootLevel = ($ROOTGPOS | ForEach-object { Get-GPO -Guid $_ -Domain $DomainName -Server $PDC }).Displayname
     
-    $LinkedGPOs = ($OUGPOS + $ROOTGPOS) | select-Object -unique | ForEach-object {Get-GPO -guid $_} | Select-Object DisplayName, CreationTime, ModificationTime
+    $LinkedGPOs = ($OUGPOS + $ROOTGPOS) | select-Object -unique | ForEach-object { Get-GPO -guid $_ -Domain $DomainName -Server $PDC } | Select-Object DisplayName, CreationTime, ModificationTime
     $UnlinkedGPOs = @($AllGPOs | Where-Object { $_.DisplayName -NotIn $LinkedGPOs.DisplayName } | Select-Object DisplayName, Created, Modified )
     $DeactivatedGPOs = @($AllGPOs | Where-Object { $_.GPOStatus -eq "AllSettingsDisabled" } | Select-Object DisplayName, Created, Modified )
     
@@ -1005,16 +1017,31 @@ Function Get-GPOInventory {
     )
     
     $GPOSummary = @()
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter * -Server $DomainName).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $null = Get-Job | Remove-Job
 
-    $GPOs = Get-GPO -All -Domain $DomainName -Server $PDC
+
+    $ADDomain = Get-ADDomain -Identity $DomainName
+    $DNComponents = $ADDomain.DistinguishedName.Split(',')
+    $PoliciesContainer = "CN=Policies"
+    $SystemContainer = "CN=System"
+    $SearchBase = "$PoliciesContainer,$SystemContainer"
+
+    foreach ($component in $DNComponents) {
+        $SearchBase += ",$component"
+    }
+
+    $GPOs = Get-GPO -All -Domain $DomainName
+
+    $LinkedGPOs = foreach ($GPO in $GPOs) {
+        $GPOLinks = Get-ADOrganizationalUnit -Filter "gpLink -like '*$($GPO.Id.ToString('B'))*'" -server $PDC | Select-Object -ExpandProperty DistinguishedName
+        $GPO | Select-Object DisplayName, @{Name = 'Links'; Expression = { $GPOLinks } }
+    }
     
     $GPOs | ForEach-Object {
-        [xml]$Report = $_ | Get-GPOReport -ReportType XML -Domain $DomainName -Server $PDC
-
-        $Permissions = Get-GPPermission -Name $Report.GPO.Name -All -DomainName $DomainName -server $PDC | Select-Object @{l = "Permission"; e = { "$($_.Trustee.Name), $($_.Trustee.SIDType), $($_.permission), Denied: $($_.Denied)" } }    
-        $Links = $Report.GPO.LinksTo
+        $GPO = $_
+        $Permissions = Get-GPPermission -Name $_.DisplayName -All -DomainName $DomainName -server $PDC | Select-Object @{l = "Permission"; e = { "$($_.Trustee.Name), $($_.Trustee.SIDType), $($_.permission), Denied: $($_.Denied)" } }    
+        $Links = ($LinkedGPOs | Where-Object { $_.DisplayName -eq $GPO.DisplayName }).Links
 
         try {
             $wmifilterid = ($_.WmiFilter.Path -split '"')[1]
@@ -1026,12 +1053,12 @@ Function Get-GPOInventory {
         
         $GPOSummary += [pscustomobject]@{
             Domain           = $DomainName
-            GPOName          = $Report.GPO.Name
+            GPOName          = $_.DisplayName
             Creationtime     = $_.CreationTime
             ModificationTime = $_.ModificationTime
-            Link             = $($Links.SOMPATH) -join "`n"
-            ComputerSettings = $Report.GPO.Computer.Enabled
-            UserSettings     = $Report.GPO.User.Enabled
+            Link             = $Links -join "`n"
+            ComputerSettings = $_.Computer.Enabled
+            UserSettings     = $_.User.Enabled
             Permissions      = $Permissions.Permission -join "`n"
             WmiFilter        = $_.WmiFilter.Name
             WmiQuery         = $wmiquery
@@ -1078,7 +1105,7 @@ Function Get-FineGrainedPasswordPolicy {
 
     $FGPwdPolicyDetails = @()
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
 
     $DomainFL = (Get-ADDomain -Identity $DomainName -Credential $Credential).DomainMode
     
@@ -1220,7 +1247,7 @@ Function Get-ADDomainDetails {
     }
     
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
 
     if ((Get-ADObject -Server $PDC -Filter { name -like "SYSVOL*" } -Properties replPropertyMetaData -Credential $Credential).ReplPropertyMetadata.count -gt 0) {
         $sysvolStatus = "DFSR"
@@ -1420,7 +1447,7 @@ Function Get-ADSiteDetails {
 
     $SiteDetails = @()
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
 
     try {
         $sites = Get-ADReplicationSite -Filter * -Server $PDC -Credential $Credential -Properties WhenCreated, WhenChanged, ProtectedFromAccidentalDeletion, Subnets    
@@ -1500,7 +1527,7 @@ Function Get-PrivGroupDetails {
     )
 
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
 
     $domainSID = (Get-ADDomain $DomainName -server $PDC -Credential $Credential -ErrorAction SilentlyContinue).domainSID.Value
     $PrivGroupSIDs = @(@("Domain Admins", ($domainSID + "-512")), 
@@ -1537,7 +1564,7 @@ Function Get-ADGroupDetails {
 
     $GroupDetails = @()    
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
 
     $domainSID = (Get-ADDomain $DomainName -server $PDC -Credential $Credential -ErrorAction SilentlyContinue).domainSID.Value
     
@@ -1584,7 +1611,7 @@ Function Get-ADUserDetails {
     )
 
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
 
     $AllUsers = Get-ADUser -Filter * -Server $PDC -Properties SamAccountName, Enabled, whenCreated, PasswordLastSet, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, LastLogonTimestamp, LockedOut | Select-object SamAccountName, Enabled, whenCreated, PasswordLastSet, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, AccountExpirationDate, @{l = "Lastlogon"; e = { [DateTime]::FromFileTime($_.LastLogonTimestamp) } }, LockedOut    
 
@@ -1613,7 +1640,7 @@ Function Get-BuiltInUserDetails {
     )
 
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
 
     $domainSID = (Get-ADDomain $DomainName -server $PDC -Credential $Credential -ErrorAction SilentlyContinue).domainSID.Value
     $BuiltInUserSIDs = @(@("Administrator", ($domainSID + "-500")), @("Guest", ($domainSID + "-501")), @("krbtgt", ($domainSID + "-502")))
@@ -1650,7 +1677,7 @@ Function Get-OrphanedFSP {
     $orphanedFSPs = @()
     $Domain = Get-ADDomain -Identity $DomainName -Credential $Credential
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
 
     $AllFSPs = Get-ADObject -Filter { ObjectClass -eq 'ForeignSecurityPrincipal' } -Server $PDC -Credential $Credential
     
@@ -1689,7 +1716,7 @@ Function Get-DomainServerDetails {
     $Today = Get-Date
     $InactivePeriod = 90
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
     
     $Servers = Get-ADComputer -Filter { OperatingSystem -Like "*Server*" } -Properties OperatingSystem, PasswordLastSet -Server $PDC -Credential $Credential
     $OSs = $Servers | Group-Object OperatingSystem | Select-Object Name, Count
@@ -1717,7 +1744,7 @@ Function Get-DomainClientDetails {
     $Today = Get-Date
     $InactivePeriod = 90
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
 
     $Workstations = Get-ADComputer -Filter { OperatingSystem -Notlike "*Server*" } -Properties OperatingSystem, PasswordLastSet -Server $PDC -Credential $Credential
     $OSs = $Workstations | Group-Object OperatingSystem | Select-Object Name, Count
@@ -1747,7 +1774,7 @@ Function Start-SecurityCheck {
     $SecuritySettings = @()
     $DCs = (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).hostname
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
 
     ForEach ($DC in $DCs) {
         if (Test-Connection -ComputerName $Dc -Count 4 -Quiet) {
@@ -1962,7 +1989,7 @@ function Get-UnusedNetlogonScripts {
     $unusedScripts = @()
     $referencedScripts = @()
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
 
     $netlogonPath = "\\$DomainName\netlogon"
     try {
@@ -2114,7 +2141,7 @@ Function Get-SystemInfo {
     )
 
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
 
     $servers = $servers | ForEach-Object { Get-ADComputer -Identity $_.split(".")[0] -Server $PDC -properties Name, IPv4Address, OperatingSystem } | select-object Name, IPv4Address, OperatingSystem
 
@@ -2974,7 +3001,7 @@ switch ($choice) {
     }
 }
 
-$null = Get-Job | Remove-Job -Force # Removing all jobs which were ran during course of the script, if any pending
+$null = $null = Get-Job | Remove-Job -Force # Removing all jobs which were ran during course of the script, if any pending
 
 <# $MailCredential = Get-Credential -Message "Enter the password for the email account: " -UserName "contactfor_nitish@hotmail.com"
 
