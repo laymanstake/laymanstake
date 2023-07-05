@@ -167,102 +167,104 @@ function Get-DFSInventory {
     $Namespaces = Get-ADObject -Filter "Objectclass -eq 'msDFS-LinkV2'" -Server $PDC -Credential $Credential -Properties "msDFS-LinkPAthv2", CanonicalName | Select-Object @{l = "DFSNRoot"; e = { "\\" + ($_.CanonicalName.split("/\"))[0] + "\" + ($_.CanonicalName.split("/\"))[3] } }, @{l = "NameSpacePath"; e = { "\\" + ($_.CanonicalName.split("/\"))[0] + "\" + ($_.CanonicalName.split("/\"))[3] + $_.("MSDFS-LinkPATHV2").Replace("/", "\") } }
 
     Write-Log -logtext "$($Namespaces.count) DFS shares found in $DomainName. Looking into further details" -logpath $logpath
-    $Namespaces  | ForEach-Object {    
-        while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
-            Start-Sleep -Milliseconds 500   # Wait for 0.5 seconds before checking again
-        }
-
-        $ScriptBlock = {
-            param($namespace, $DomainName, $ReplicatedFolders, $HoursReplicated, $Members, [pscredential]$Credential)
-
-            $namespacePath = $Namespace.Namespacepath
-            try {
-                $Shares = Get-DFSNFolderTarget -Path $namespacePath -ErrorAction SilentlyContinue 
-            }
-            catch {
-                $Shares = $null 
+    if ($Namespaces) {
+        $Namespaces  | ForEach-Object {    
+            while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
+                Start-Sleep -Milliseconds 500   # Wait for 0.5 seconds before checking again
             }
 
-            If ($Shares) {
-                $ShareNames = ($Shares | Select-Object TargetPath).TargetPath 
-        
-                $ContentPath = @()
-                $ContentPath += $ShareNames | ForEach-Object {
-                    $Share = $_
-                    $ShareName = ($Share.Split('\\') | select-Object -Last 1)                    
-                    $ServerName = ($Share.split("\\")[2])
-                
-                    If (-Not($ServerName -match "[.]")) { 
-                        $ServerName = $ServerName + "." + $DomainName
-                    }
+            $ScriptBlock = {
+                param($namespace, $DomainName, $ReplicatedFolders, $HoursReplicated, $Members)
+
+                $namespacePath = $Namespace.Namespacepath
+                try {
+                    $Shares = Get-DFSNFolderTarget -Path $namespacePath -ErrorAction SilentlyContinue 
+                }
+                catch {
+                    $Shares = $null 
+                }
+
+                If ($Shares) {
+                    $ShareNames = ($Shares | Select-Object TargetPath).TargetPath 
+            
+                    $ContentPath = @()
+                    $ContentPath += $ShareNames | ForEach-Object {
+                        $Share = $_
+                        $ShareName = ($Share.Split('\\') | select-Object -Last 1)                    
+                        $ServerName = ($Share.split("\\")[2])
                     
-                    try {
-                        $Path = Get-WmiObject Win32_Share -filter "Name LIKE '$Sharename'" -ComputerName $ServerName -Credential $Credential -ErrorAction SilentlyContinue
+                        If (-Not($ServerName -match "[.]")) { 
+                            $ServerName = $ServerName + "." + $DomainName
+                        }
+                        
+                        try {
+                            $Path = Get-WmiObject Win32_Share -filter "Name LIKE '$Sharename'" -ComputerName $ServerName -ErrorAction SilentlyContinue
+                        }
+                        catch {
+                            Write-Output $_.Exception.Message
+                        }                    
+
+                        if ($Path) { 
+                            "$($ServerName)::$($Path.Path)"
+                        }
+                        else { 
+                            "$($ServerName) not reachable"
+                        } 
                     }
-                    catch {
-                        Write-Output $_.Exception.Message
-                    }                    
 
-                    if ($Path) { 
-                        "$($ServerName)::$($Path.Path)"
+                    $RGGroup = ($ReplicatedFolders | Where-Object { $_.DFSNPath -eq $namespacePath -AND $_.DFSNPath -ne "" }).Groupname
+
+                    if ($RGGroup) {
+                        $RGHoursReplicated = ($HoursReplicated | Where-Object { $_.GroupName -eq $RGGroup } | Select-Object HoursReplicated).HoursReplicated
+                        $RGMembers = $Members | Where-Object { $_.GroupName -eq $RGGroup } | Select-Object ReadOnly, RemoveDeletedFiles, Enabled, State
                     }
-                    else { 
-                        "$($ServerName) not reachable"
-                    } 
+                    else {
+                        $RGGroup = "No replication group found"
+                        $RGHoursReplicated = "NA"
+                        $RGMembers = "NA"
+                    }
+
+                    $NamespaceDetails = [PSCustomObject]@{
+                        DFSNRoot          = $namespace.DFSNRoot
+                        NamespacePath     = $NameSpacePath            
+                        RGGroup           = $RGGroup
+                        ShareNames        = $ShareNames
+                        ContentPath       = $ContentPath
+                        RGMembers         = $RGMembers
+                        RGHoursReplicated = $RGHoursReplicated
+                    }      
+
+                    Return $NamespaceDetails
                 }
-
-                $RGGroup = ($ReplicatedFolders | Where-Object { $_.DFSNPath -eq $namespacePath -AND $_.DFSNPath -ne "" }).Groupname
-
-                if ($RGGroup) {
-                    $RGHoursReplicated = ($HoursReplicated | Where-Object { $_.GroupName -eq $RGGroup } | Select-Object HoursReplicated).HoursReplicated
-                    $RGMembers = $Members | Where-Object { $_.GroupName -eq $RGGroup } | Select-Object ReadOnly, RemoveDeletedFiles, Enabled, State
-                }
-                else {
-                    $RGGroup = "No replication group found"
-                    $RGHoursReplicated = "NA"
-                    $RGMembers = "NA"
-                }
-
-                $NamespaceDetails = [PSCustomObject]@{
-                    DFSNRoot          = $namespace.DFSNRoot
-                    NamespacePath     = $NameSpacePath            
-                    RGGroup           = $RGGroup
-                    ShareNames        = $ShareNames
-                    ContentPath       = $ContentPath
-                    RGMembers         = $RGMembers
-                    RGHoursReplicated = $RGHoursReplicated
-                }      
-
-                Return $NamespaceDetails
             }
+
+            $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $_ , $DomainName, $ReplicatedFolders, $HoursReplicated, $Members
+        }     
+        
+        Write-Log -logtext "Powershell jobs submitted for looking into $($Namespaces.count) DFS shares details in $DomainName" -logpath $logpath
+        $null = $jobs | Wait-Job 
+
+        $result = @()
+        foreach ($job in $jobs) {
+            $result += Receive-Job -Job $job
         }
+        $null = Get-Job | remove-Job
 
-        $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $_ , $DomainName, $ReplicatedFolders, $HoursReplicated, $Members, $Credential         
-    }     
-    
-    Write-Log -logtext "Powershell jobs submitted for looking into $($Namespaces.count) DFS shares details in $DomainName" -logpath $logpath
-    $null = Wait-Job -Job $jobs
+        Write-Log -logtext "Powershell jobs completed for $($Namespaces.count) DFS shares details in $DomainName" -logpath $logpath
 
-    $result = @()
-    foreach ($job in $jobs) {
-        $result += Receive-Job -Job $job
-    }
-    $null = Get-Job | remove-Job
-
-    Write-Log -logtext "Powershell jobs completed for $($Namespaces.count) DFS shares details in $DomainName" -logpath $logpath
-
-    ForEach ($res in $result) {
-        $infoObject += [PSCustomObject]@{
-            DFSNRoot             = $res.DFSNRoot
-            NamespacePath        = $res.NameSpacePath            
-            ReplicationGroupName = $res.RGGroup
-            ShareNames           = $res.ShareNames -join "`n"
-            ContentPath          = $res.ContentPath -join "`n"
-            ReadOnly             = $res.RGMembers.readOnly -join "`n"
-            RemoveDeletedFiles   = $res.RGMembers.RemoveDeletedFiles -join "`n"
-            Enabled              = $res.RGMembers.Enabled -join "`n"
-            HoursReplicated      = $res.RGHoursReplicated
-            State                = $res.RGMembers.State -join "`n"
+        ForEach ($res in $result) {
+            $infoObject += [PSCustomObject]@{
+                DFSNRoot             = $res.DFSNRoot
+                NamespacePath        = $res.NameSpacePath            
+                ReplicationGroupName = $res.RGGroup
+                ShareNames           = $res.ShareNames -join "`n"
+                ContentPath          = $res.ContentPath -join "`n"
+                ReadOnly             = $res.RGMembers.readOnly -join "`n"
+                RemoveDeletedFiles   = $res.RGMembers.RemoveDeletedFiles -join "`n"
+                Enabled              = $res.RGMembers.Enabled -join "`n"
+                HoursReplicated      = $res.RGHoursReplicated
+                State                = $res.RGMembers.State -join "`n"
+            }
         }
     }
 
@@ -714,10 +716,11 @@ Function Get-AdminCountDetails {
 Function Get-ADDHCPDetails {  
     [CmdletBinding()]
     Param(    
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,    
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
 
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
     $null = Get-Job | Remove-Job
     $configPartition = (Get-ADforest).PartitionsContainer.Replace("CN=Partitions,", "")
     $AllDHCPServers = (Get-ADObject -SearchBase $configPartition -Filter "objectclass -eq 'dhcpclass' -AND Name -ne 'dhcproot'" -Server $PDC -Credential $Credential).Name
@@ -2900,7 +2903,7 @@ Function Get-ADForestDetails {
         New-BaloonNotification -title "Caution" -message $message -icon Warning
         Write-Log -logtext $message -logpath $logpath
 
-        $DHCPDetails = Get-ADDHCPDetails -Credential $Credential
+        $DHCPDetails = Get-ADDHCPDetails -Credential $Credential -DomainName $domain
         $DHCPInventory = Get-DHCPInventory
         $DHCPSummary = ($DHCPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Summary</h2>") -replace "`n", "<br>"
         $DHCPInventorySummary = ($DHCPInventory.Inventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Inventory</h2>") -replace "`n", "<br>" -replace '<td>Inactive</td>', '<td bgcolor="red">Inactive</td>'
