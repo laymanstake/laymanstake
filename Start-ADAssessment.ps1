@@ -359,7 +359,7 @@ Function Get-ADFSDetails {
     Get-ADComputer -Filter { Enabled -eq $True -and OperatingSystem -like "*Server*" } -Server $DomainName  -Properties OperatingSystem, LastLogonDate | Where-Object { $_.LastLogonDate -gt (Get-Date).AddDays(-30) } |
     ForEach-Object {
         while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
-            Start-Sleep -Milliseconds 500  # Wait for 0.5 seconds before checking again
+            Start-Sleep -Milliseconds 50  # Wait for 0.05 seconds before checking again
         }        
 
         $ScriptBlock = {
@@ -764,7 +764,8 @@ Function Get-ADDHCPDetails {
                     Write-Log -logtext "Failed to get details from DHCP Server $dhcpserver : $($_.Exception.Message)" -logpath $logpath
                 }
             }
-        } else {
+        }
+        else {
             Write-Log -logtext "DHCP Server $($dhcpserver) not reachable over ICMP, canot access summary" -logpath $logpath
         }
     }
@@ -1005,7 +1006,7 @@ Function Get-ADGPOSummary {
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName ).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
     $null = Get-Job | Remove-Job -force
 
-    $AllGPOs = Get-ADObject -Filter { objectClass -eq 'groupPolicyContainer' } -Server $PDC -Credential $Credential -Properties Displayname, Created, Modified
+    $AllGPOs = Get-GPO -All -Domain $DomainName -Server $PDC
 
     $ROOTGPOS = (Get-ADDomain -Server $DomainName -Credential $Credential).LinkedGroupPolicyObjects | ForEach-Object { [regex]::Match($_, '{.*?}').Value.Trim('{}') }
     $OUGPOS = Get-ADOrganizationalUnit -LDAPFilter '(GPLink=*)' -server $PDC -Credential $Credential -Properties GPLink | Select-Object -ExpandProperty LinkedGroupPolicyObjects | ForEach-Object { ($_ -split ',')[0].Substring(3).Trim('{}') } | Select-Object -Unique
