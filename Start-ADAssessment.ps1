@@ -1014,8 +1014,8 @@ Function Get-ADGPOSummary {
     $GPOsAtRootLevel = ($ROOTGPOS | ForEach-object { Get-GPO -Guid $_ -Domain $DomainName -Server $PDC }).Displayname
     
     $LinkedGPOs = ($OUGPOS + $ROOTGPOS) | select-Object -unique | ForEach-object { Get-GPO -guid $_ -Domain $DomainName -Server $PDC } | Select-Object DisplayName, CreationTime, ModificationTime
-    $UnlinkedGPOs = @($AllGPOs | Where-Object { $_.DisplayName -NotIn $LinkedGPOs.DisplayName } | Select-Object DisplayName, Created, Modified )
-    $DeactivatedGPOs = @($AllGPOs | Where-Object { $_.GPOStatus -eq "AllSettingsDisabled" } | Select-Object DisplayName, Created, Modified )
+    $UnlinkedGPOs = @($AllGPOs | Where-Object { $_.DisplayName -NotIn $LinkedGPOs.DisplayName } | Select-Object DisplayName, CreationTime, ModificationTime )
+    $DeactivatedGPOs = @($AllGPOs | Where-Object { $_.GPOStatus -eq "AllSettingsDisabled" } | Select-Object DisplayName, CreationTime, ModificationTime )
     
     $LinkedButDeactivatedGPOs = @()
 
@@ -1028,12 +1028,12 @@ Function Get-ADGPOSummary {
         AllGPOs                     = $AllGPOs.count
         GPOsAtRoot                  = $GPOsAtRootLevel -join "`n"
         Unlinked                    = @($UnlinkedGPOs).DisplayName -join "`n"
-        UnlinkedCreationTime        = @($UnlinkedGPOs).Created -join "`n"
-        UnlinkedModificationTime    = @($UnlinkedGPOs).Modified -join "`n"
+        UnlinkedCreationTime        = @($UnlinkedGPOs).CreationTime -join "`n"
+        UnlinkedModificationTime    = @($UnlinkedGPOs).ModificationTime -join "`n"
         UnlinkedCount               = @($UnlinkedGPOs).count
         Deactivated                 = @($DeactivatedGPOs).DisplayName -join "`n"
-        DeactivatedCreationTime     = @($DeactivatedGPOs).Created -join "`n"
-        DeactivatedModificationTime = @($DeactivatedGPOs).Modified -join "`n"
+        DeactivatedCreationTime     = @($DeactivatedGPOs).CreationTime -join "`n"
+        DeactivatedModificationTime = @($DeactivatedGPOs).ModificationTime -join "`n"
         DeactivatedCount            = @($DeactivatedGPOs).count
         LinkedButDeactivated        = @($LinkedButDeactivatedGPOs).DisplayName -join "`n"
         LinkedButDeactivatedCount   = @($LinkedButDeactivatedGPOs).Count
