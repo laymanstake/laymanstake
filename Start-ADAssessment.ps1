@@ -147,54 +147,60 @@ function Write-Log {
 # This function creates DFS inventory for the given domain.
 function Get-DFSInventory { 
     param (
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
     )
     
-    Try {
-        $DFSNRoots = Get-dfsnroot -Domain $DomainName -ErrorAction SilentlyContinue | Where-Object { $_.State -eq "Online" } | Select-Object Path, Type
-    }
-    Catch {
-        Write-Output $_.Exception.Message
-    }
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $null = Get-Job | Remove-Job    
 
     $ReplicatedFolders = Get-DfsReplicatedFolder -DomainName $DomainName -ErrorAction SilentlyContinue | Select-Object DFSNPath, GroupName -Unique
     $HoursReplicated = Get-DfsrGroupSchedule -DomainName $DomainName -ErrorAction SilentlyContinue | Select-Object GroupName, HoursReplicated
     $Members = Get-DfsrMembership -DomainName $Domainname -ErrorAction SilentlyContinue | Select-Object GroupName, ReadOnly, RemoveDeletedFiles, Enabled, State
 
     $infoObject = @()
+    $DFSDetails = @()    
     $maxParallelJobs = 50
     $jobs = @()    
 
-    ForEach ($DFSNRoot in $DFSNRoots) {
-        $Namespaces = Get-DfsnFolder -Path ($DFSNRoot.Path + "\*") -ErrorAction SilentlyContinue | Select-Object Path, State
+    $Namespaces = Get-ADObject -Filter "Objectclass -eq 'msDFS-LinkV2'" -Server $PDC -Credential $Credential -Properties "msDFS-LinkPAthv2", CanonicalName | Select-Object @{l = "DFSNRoot"; e = { "\\" + ($_.CanonicalName.split("/\"))[0] + "\" + ($_.CanonicalName.split("/\"))[3] } }, @{l = "NameSpacePath"; e = { "\\" + ($_.CanonicalName.split("/\"))[0] + "\" + ($_.CanonicalName.split("/\"))[3] + $_.("MSDFS-LinkPATHV2").Replace("/", "\") } }
 
-        $Namespaces | ForEach-Object {
-            $NamespacePath = $_.Path              
-            $ShareNames = ($NamespacePath | ForEach-Object { Get-DFSNFolderTarget -Path $_ } | Select-Object TargetPath).TargetPath 
-            
-            $ShareNames | ForEach-Object {
-                while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
-                    Start-Sleep -Milliseconds 500  # Wait for 0.5 seconds before checking again
-                }
+    Write-Log -logtext "$($Namespaces.count) DFS shares found in $DomainName. Looking into further details" -logpath $logpath
+    $Namespaces  | ForEach-Object {    
+        while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
+            Start-Sleep -Milliseconds 500   # Wait for 0.5 seconds before checking again
+        }
 
-                $ScriptBlock = {
-                    param($Share, $DomainName)
-                        
+        $ScriptBlock = {
+            param($namespace, $DomainName, $ReplicatedFolders, $HoursReplicated, $Members, [pscredential]$Credential)
+
+            $namespacePath = $Namespace.Namespacepath
+            try {
+                $Shares = Get-DFSNFolderTarget -Path $namespacePath -ErrorAction SilentlyContinue 
+            }
+            catch {
+                $Shares = $null 
+            }
+
+            If ($Shares) {
+                $ShareNames = ($Shares | Select-Object TargetPath).TargetPath 
+        
+                $ContentPath = @()
+                $ContentPath += $ShareNames | ForEach-Object {
+                    $Share = $_
                     $ShareName = ($Share.Split('\\') | select-Object -Last 1)                    
                     $ServerName = ($Share.split("\\")[2])
-                    
+                
                     If (-Not($ServerName -match "[.]")) { 
                         $ServerName = $ServerName + "." + $DomainName
                     }
-
-                    if (Test-Connection -ComputerName $ServerName -Count 1 -ErrorAction SilentlyContinue) {
-                        try {
-                            $Path = Get-WmiObject Win32_Share -filter "Name LIKE '$Sharename'" -ComputerName $ServerName -ErrorAction SilentlyContinue
-                        }
-                        catch {
-                            Write-Output $_.Exception.Message
-                        }
+                    
+                    try {
+                        $Path = Get-WmiObject Win32_Share -filter "Name LIKE '$Sharename'" -ComputerName $ServerName -Credential $Credential -ErrorAction SilentlyContinue
                     }
+                    catch {
+                        Write-Output $_.Exception.Message
+                    }                    
 
                     if ($Path) { 
                         "$($ServerName)::$($Path.Path)"
@@ -204,42 +210,58 @@ function Get-DFSInventory {
                     } 
                 }
 
-                $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $_, $DomainName
-            }
+                $RGGroup = ($ReplicatedFolders | Where-Object { $_.DFSNPath -eq $namespacePath -AND $_.DFSNPath -ne "" }).Groupname
 
-            $null = Wait-Job -Job $jobs
+                if ($RGGroup) {
+                    $RGHoursReplicated = ($HoursReplicated | Where-Object { $_.GroupName -eq $RGGroup } | Select-Object HoursReplicated).HoursReplicated
+                    $RGMembers = $Members | Where-Object { $_.GroupName -eq $RGGroup } | Select-Object ReadOnly, RemoveDeletedFiles, Enabled, State
+                }
+                else {
+                    $RGGroup = "No replication group found"
+                    $RGHoursReplicated = "NA"
+                    $RGMembers = "NA"
+                }
 
-            $result = @()
-            foreach ($job in $jobs) {
-                $result += Receive-Job -Job $job             
-            }
-                    
-            $ContentPath = $result
+                $NamespaceDetails = [PSCustomObject]@{
+                    DFSNRoot          = $namespace.DFSNRoot
+                    NamespacePath     = $NameSpacePath            
+                    RGGroup           = $RGGroup
+                    ShareNames        = $ShareNames
+                    ContentPath       = $ContentPath
+                    RGMembers         = $RGMembers
+                    RGHoursReplicated = $RGHoursReplicated
+                }      
 
-            $RGGroup = ($ReplicatedFolders | Where-Object { $_.DFSNPath -eq $NamespacePath -AND $_.DFSNPath -ne "" }).Groupname
-            if ($RGGroup) {
-                $RGHoursReplicated = ($HoursReplicated | Where-Object { $_.GroupName -eq $RGGroup } | Select-Object HoursReplicated).HoursReplicated
-                $RGMembers = $Members | Where-Object { $_.GroupName -eq $RGGroup } | Select-Object ReadOnly, RemoveDeletedFiles, Enabled, State
+                Return $NamespaceDetails
             }
-            else {
-                $RGGroup = "No replication group found"
-                $RGHoursReplicated = "NA"
-                $RGMembers = "NA"
-            }
-            
-            $infoObject += [PSCustomObject]@{
-                DFSNRoot             = $DFSNRoot.Path                
-                NamespacePath        = $_.Path
-                NamespaceState       = $_.State
-                ReplicationGroupName = $RGGroup
-                ShareNames           = $ShareNames -join "`n"
-                ContentPath          = $ContentPath -join "`n"
-                ReadOnly             = $RGMembers.readOnly -join "`n"
-                RemoveDeletedFiles   = $RGMembers.RemoveDeletedFiles -join "`n"
-                Enabled              = $RGMembers.Enabled -join "`n"
-                HoursReplicated      = $RGHoursReplicated
-                State                = $RGMembers.State -join "`n"
-            }
+        }
+
+        $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $_ , $DomainName, $ReplicatedFolders, $HoursReplicated, $Members, $Credential         
+    }     
+    
+    Write-Log -logtext "Powershell jobs submitted for looking into $($Namespaces.count) DFS shares details in $DomainName" -logpath $logpath
+    $null = Wait-Job -Job $jobs
+
+    $result = @()
+    foreach ($job in $jobs) {
+        $result += Receive-Job -Job $job
+    }
+    $null = Get-Job | remove-Job
+
+    Write-Log -logtext "Powershell jobs completed for $($Namespaces.count) DFS shares details in $DomainName" -logpath $logpath
+
+    ForEach ($res in $result) {
+        $infoObject += [PSCustomObject]@{
+            DFSNRoot             = $res.DFSNRoot
+            NamespacePath        = $res.NameSpacePath            
+            ReplicationGroupName = $res.RGGroup
+            ShareNames           = $res.ShareNames -join "`n"
+            ContentPath          = $res.ContentPath -join "`n"
+            ReadOnly             = $res.RGMembers.readOnly -join "`n"
+            RemoveDeletedFiles   = $res.RGMembers.RemoveDeletedFiles -join "`n"
+            Enabled              = $res.RGMembers.Enabled -join "`n"
+            HoursReplicated      = $res.RGHoursReplicated
+            State                = $res.RGMembers.State -join "`n"
         }
     }
 
@@ -328,7 +350,7 @@ Function Get-ADFSDetails {
     $InstallPath = $null
 
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    $null = $null = Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
     
     $jobs = @()
     
@@ -465,7 +487,7 @@ Function Get-PKIDetails {
     $PKIDetails = New-Object psobject
     
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $ForestName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    $null = $null = Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
     $PKI = Get-ADObject -Filter { objectClass -eq "pKIEnrollmentService" } -Server $PDC -Credential $Credential -SearchBase "CN=Enrollment Services,CN=Public Key Services,CN=Services,$((Get-ADRootDSE).ConfigurationNamingContext)"  -Properties DisplayName, DnsHostName | Select-Object DisplayName, DnsHostName, @{l = "OperatingSystem"; e = { (Get-ADComputer ($_.DNShostname -replace ".$ForestName") -Properties OperatingSystem -server $PDC -Credential $Credential).OperatingSystem } }, @{l = "IPv4Address"; e = { ([System.Net.Dns]::GetHostAddresses($_.DnsHostName) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n" } }
 
     If ($PKI) {        
@@ -513,7 +535,7 @@ Function Get-ADDNSDetails {
 
     $DNSServerDetails = @()
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    $null = $null = Get-Job | Remove-Job    
+    $null = Get-Job | Remove-Job    
     
     try {
         $DNSServers = (Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { Get-WmiObject  -Class Win32_serverfeature  -ComputerName $_.Name -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "DNS Server" } } | Select-Object Name, IPv4Address
@@ -568,7 +590,7 @@ Function Get-ADDNSZoneDetails {
 
     $DNSServerZoneDetails = @()
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    $null = $null = Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
     
     $DNSZones = Get-DnsServerZone -ComputerName $PDC | Where-Object { -Not $_.IsReverseLookupZone } | Select-Object DistinguishedName, ZoneName, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, MasterServers, SecureSecondaries, SecondaryServers
 
@@ -632,7 +654,7 @@ Function Get-ADGroupMemberRecursive {
     
     $Domain = (Get-ADDomain -Identity $DomainName -Credential $Credential)
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    $null = $null = Get-Job | Remove-Job
+    $null = Get-Job | Remove-Job
     try {
         $members = (Get-ADGroup -Identity $GroupName -Server $PDC -Credential $Credential -Properties Members).members
     }
@@ -2786,7 +2808,7 @@ Function Get-ADForestDetails {
             New-BaloonNotification -title "Caution" -message $message -icon Warning
             Write-Log -logtext $message -logpath $logpath
 
-            $DFSDetails += Get-DFSInventory -DomainName $domain
+            $DFSDetails += Get-DFSInventory -DomainName $domain -Credential $Credential
 
             $message = "Lookup for DFS inventory in $($Domain) done."
             New-BaloonNotification -title "Information" -message $message
@@ -3006,7 +3028,7 @@ switch ($choice) {
     }
 }
 
-$null = $null = Get-Job | Remove-Job -Force # Removing all jobs which were ran during course of the script, if any pending
+$null = Get-Job | Remove-Job -Force # Removing all jobs which were ran during course of the script, if any pending
 
 <# $MailCredential = Get-Credential -Message "Enter the password for the email account: " -UserName "contactfor_nitish@hotmail.com"
 
