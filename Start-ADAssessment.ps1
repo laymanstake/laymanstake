@@ -1064,7 +1064,7 @@ Function Get-GPOInventory {
         $SearchBase += ",$component"
     }
 
-    $GPOs = Get-GPO -All -Domain $DomainName
+    $GPOs = Get-GPO -All -Domain $DomainName -Server $PDC
     $ROOTGPOS = (Get-ADDomain -Server $DomainName -Credential $Credential).LinkedGroupPolicyObjects | ForEach-Object { [regex]::Match($_, '{.*?}').Value.Trim('{}') }
 
     $LinkedGPOs = foreach ($GPO in $GPOs) {
