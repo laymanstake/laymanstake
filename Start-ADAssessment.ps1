@@ -9,6 +9,7 @@
     version 1.2 | 16/06/2023 Number of small fixes included wrong calulations on empty groups
     version 1.3 | 21/06/2023 PowerShell jobs for AD health checks and Domain Summary details, Also chosing least latency DC
     version 1.4 | 03/07/2023 PowerShell jobs for ADFS/ADSync search and DFS Inventory function added
+    version 1.5 | 05/07/2023 Performance improvements in DFS inventory and added error details in DHCP inventory
 
     The script is kept as much modular as possible so that functions can be modified or added without altering the entire script
     It should be run as administrator and preferably Enterprise Administrator to get complete data. Its advised to run in demonstration environment to be sure first
@@ -29,7 +30,7 @@
     11. Get-DHCPInventory               # This function gathers information about DHCP servers in the Active Directory domain, including server configurations, scopes, and reservations.
     12. Get-EmptyOUDetails              # This function identifies empty Organizational Units (OUs) in the Active Directory domain.
     13. Get-ADObjectsToClean            # This function identifies Active Directory objects that can be cleaned up, such as orphaned and lingering objects from given domain.
-    14. Get-ADGPOSummary                # This function summarizes Group Policy Objects (GPOs) in the Active Directory domain, including linked locations, and scop
+    14. Get-ADGPOSummary                # This function summarizes Group Policy Objects (GPOs) in the Active Directory domain, including linked locations, and scope
     15. Get-GPOInventory                # This function provides an inventory of GPOs in the Active Directory domain, including their names, scope, wmi filters and applied locations.
     16. Get-ADPasswordPolicy            # This function retrieves the password policy settings configured in the Active Directory domain.
     17. Get-FineGrainedPasswordPolicy   # This function retrieves the settings of fine-grained password policies in the Active Directory domain.
@@ -95,9 +96,9 @@ else {
 }
 
 # Output formating options
-$logopath = "https://camo.githubusercontent.com/239d9de795c471d44ad89783ec7dc03a76f5c0d60d00e457c181b6e95c6950b6/68747470733a2f2f6e69746973686b756d61722e66696c65732e776f726470726573732e636f6d2f323032322f31302f63726f707065642d696d675f32303232303732335f3039343534372d72656d6f766562672d707265766965772e706e67"
+$logopath = "https://atos.net/content/assets/global-images/atos-logo-blue-2022.svg"
 $ReportPath1 = "$env:USERPROFILE\desktop\ADReport_$(get-date -Uformat "%Y%m%d-%H%M%S").html"
-$CopyRightInfo = " @Copyright Nitish Kumar <a href='https://github.com/laymanstake'>Visit nitishkumar.net</a>"
+$CopyRightInfo = " @Copyright ATOS <a href='https://atos.net'>Visit atos.net</a>"
 [bool]$forestcheck = $false
 $logpath = "$env:USERPROFILE\desktop\ADReport_$(get-date -Uformat "%Y%m%d-%H%M%S").txt"
 
@@ -723,39 +724,48 @@ Function Get-ADDHCPDetails {
     $DHCPDetails = @()
 
     foreach ($dhcpserver in $AllDHCPServers) {
-        $ErrorActionPreference = "SilentlyContinue"
-        try {
-            $Allscopes = @(Get-DhcpServerv4Scope -ComputerName $dhcpserver -ErrorAction:SilentlyContinue)
-            $InactiveScopes = @($Allscopes | Where-Object { $_.State -eq 'Inactive' })
-        
-            $NoLeaseScopes = @()
-            foreach ($Scope in $Allscopes) {
-                $Leases = Get-DhcpServerv4Lease -ComputerName $dhcpserver -ScopeId $Scope.ScopeId
-                if ($Leases.Count -eq 0) {
-                    $NoLeaseScopes += $Scope.ScopeID
+        if (Test-Connection -ComputerName $dhcpserver -count 2 -Quiet) {
+            $DHCPStatus = (get-service -Name DHCPServer -ComputerName $dhcpserver).Status
+            If ($DHCPStatus -eq "Stopped") {
+                Write-Log -logtext "DHCP Service not running on DHCP Server $($dhcpserver), canot access summary" -logpath $logpath
+            }
+            Else {
+                try {
+                    $Allscopes = @(Get-DhcpServerv4Scope -ComputerName $dhcpserver -ErrorAction:SilentlyContinue)
+                    $InactiveScopes = @($Allscopes | Where-Object { $_.State -eq 'Inactive' })
+                
+                    $NoLeaseScopes = @()
+                    foreach ($Scope in $Allscopes) {
+                        $Leases = Get-DhcpServerv4Lease -ComputerName $dhcpserver -ScopeId $Scope.ScopeId
+                        if ($Leases.Count -eq 0) {
+                            $NoLeaseScopes += $Scope.ScopeID
+                        }
+                    }
+
+                    try {
+                        $OS = (Get-WmiObject win32_operatingSystem -ComputerName $dhcpserver -Property Caption).Caption                
+                    }
+                    catch {
+                        $OS = "Access denied"
+                        Write-Log -logtext "Could not get operating system details for DHCP Server $dhcpserver : $($_.Exception.Message)" -logpath $logpath
+                    }
+
+                    $DHCPDetails += [PSCustomObject]@{
+                        ServerName         = $dhcpserver
+                        IPAddress          = ([System.Net.Dns]::GetHostAddresses($dhcpserver) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n"
+                        OperatingSystem    = $OS 
+                        ScopeCount         = $Allscopes.count
+                        InactiveScopeCount = $InactiveScopes.count
+                        ScopeWithNoLease   = $NoLeaseScopes -join "`n"
+                        NoLeaseScopeCount  = $NoLeaseScopes.count                
+                    }
+                }
+                catch {
+                    Write-Log -logtext "Failed to get details from DHCP Server $dhcpserver : $($_.Exception.Message)" -logpath $logpath
                 }
             }
-
-            try {
-                $OS = (Get-WmiObject win32_operatingSystem -ComputerName $dhcpserver -Property Caption).Caption                
-            }
-            catch {
-                $OS = "Access denied"
-                Write-Log -logtext "Could not get operating system details for DHCP Server $dhcpserver : $($_.Exception.Message)" -logpath $logpath
-            }
-
-            $DHCPDetails += [PSCustomObject]@{
-                ServerName         = $dhcpserver
-                IPAddress          = ([System.Net.Dns]::GetHostAddresses($dhcpserver) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n"
-                OperatingSystem    = $OS 
-                ScopeCount         = $Allscopes.count
-                InactiveScopeCount = $InactiveScopes.count
-                ScopeWithNoLease   = $NoLeaseScopes -join "`n"
-                NoLeaseScopeCount  = $NoLeaseScopes.count                
-            }
-        }
-        catch {
-            Write-Log -logtext "Failed to get details from DHCP Server $dhcpserver : $($_.Exception.Message)" -logpath $logpath
+        } else {
+            Write-Log -logtext "DHCP Server $($dhcpserver) not reachable over ICMP, canot access summary" -logpath $logpath
         }
     }
     
@@ -3014,7 +3024,7 @@ switch ($choice) {
         }
 
         if ($test) {
-            Get-ADForestDetails -Credential $DomainCred -ChildDomain $DomainName -ADFS -DHCP -GPO
+            Get-ADForestDetails -Credential $DomainCred -ChildDomain $DomainName -ADFS -DHCP -GPO -DFS
         }
         else {
             Write-Host "Credentials not working"
