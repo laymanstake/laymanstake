@@ -727,7 +727,7 @@ Function Get-ADDHCPDetails {
     $DHCPDetails = @()
 
     foreach ($dhcpserver in $AllDHCPServers) {
-        if (Test-Connection -ComputerName $dhcpserver -count 2 -Quiet) {
+        if (Test-Connection -ComputerName $dhcpserver -count 2 -Quiet -ErrorAction SilentlyContinue) {
             $DHCPStatus = (get-service -Name DHCPServer -ComputerName $dhcpserver).Status
             If ($DHCPStatus -eq "Stopped") {
                 Write-Log -logtext "DHCP Service not running on DHCP Server $($dhcpserver), canot access summary" -logpath $logpath
@@ -749,22 +749,26 @@ Function Get-ADDHCPDetails {
                         $OS = (Get-WmiObject win32_operatingSystem -ComputerName $dhcpserver -Property Caption).Caption                
                     }
                     catch {
-                        $OS = "Access denied"
+                        $OS = "Access denied"                        
                         Write-Log -logtext "Could not get operating system details for DHCP Server $dhcpserver : $($_.Exception.Message)" -logpath $logpath
-                    }
-
-                    $DHCPDetails += [PSCustomObject]@{
-                        ServerName         = $dhcpserver
-                        IPAddress          = ([System.Net.Dns]::GetHostAddresses($dhcpserver) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n"
-                        OperatingSystem    = $OS 
-                        ScopeCount         = $Allscopes.count
-                        InactiveScopeCount = $InactiveScopes.count
-                        ScopeWithNoLease   = $NoLeaseScopes -join "`n"
-                        NoLeaseScopeCount  = $NoLeaseScopes.count                
-                    }
+                    }                    
                 }
                 catch {
                     Write-Log -logtext "Failed to get details from DHCP Server $dhcpserver : $($_.Exception.Message)" -logpath $logpath
+                    $OS = "Access denied"
+                    $Allscopes = @()
+                    $InactiveScopes = @()
+                    $NoLeaseScopes = @()
+                }
+
+                $DHCPDetails += [PSCustomObject]@{
+                    ServerName         = $dhcpserver
+                    IPAddress          = ([System.Net.Dns]::GetHostAddresses($dhcpserver) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n"
+                    OperatingSystem    = $OS 
+                    ScopeCount         = $Allscopes.count
+                    InactiveScopeCount = $InactiveScopes.count
+                    ScopeWithNoLease   = $NoLeaseScopes -join "`n"
+                    NoLeaseScopeCount  = $NoLeaseScopes.count                
                 }
             }
         }
@@ -1323,7 +1327,7 @@ Function Get-ADDomainDetails {
         $dcJobs += Start-Job -ScriptBlock {
             param($dc, [pscredential]$Credential, $DomainName, $PDC, $possibleDFL, $sysvolStatus, $FSR2DFSRStatus, $UndesiredFeatures, $logpath)
             
-            $results = @()
+            $results = @()            
             $NLParameters = $null
             $SSL2Client = $null
             $SSL2Server = $null
@@ -1344,7 +1348,6 @@ Function Get-ADDomainDetails {
                     Write-Log -logtext "Failed to open remote registry on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
                     $results = ("Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found")
                 }
-
                 try {
                     $NLParameters = (($remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\')).GetValueNames() | ForEach-Object { [PSCustomObject]@{ Parameter = $_; Value = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\').GetValue($_) } } | ForEach-Object { "$($_.parameter), $($_.value)" }) -join "`n"
                 }
@@ -1439,6 +1442,7 @@ Function Get-ADDomainDetails {
                 Site                        = $dc.site
                 OSVersion                   = $dc.OperatingSystem
                 IPAddress                   = $dc.IPv4Address
+                GlobalCatalog               = $dc.IsGlobalCatalog                
                 FSMORoles                   = (Get-ADDomainController -Identity $dc.hostname -Server $PDC -Credential $Credential | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
                 Sysvol                      = $sysvolStatus
                 FSR2DFSR                    = $FSR2DFSRStatus
@@ -1472,7 +1476,7 @@ Function Get-ADDomainDetails {
         $DomainDetails += $result
     }
     
-    $DomainDetails = $DomainDetails | Sort-Object -Property Domain, DCName | Select-Object Domain, DomainFunctionLevel, PossibleDomainFunctionLevel, DCName, Site, OSVersion, IPAddress, FSMORoles, Sysvol, FSR2DFSR, LAPS, NTPServer, NTPType, SMBv1Client, SMBv1Server, ADWSStatus, SSL2Client, SSL2Server, TLS1Client, TLS1Server, TLS11Client, TLS11Server, Firewall, NetlogonParameter, ReadOnly, UndesiredFeatures
+    $DomainDetails = $DomainDetails | Sort-Object -Property Domain, DCName | Select-Object Domain, DomainFunctionLevel, PossibleDomainFunctionLevel, DCName, Site, OSVersion, IPAddress, GlobalCatalog, FSMORoles, Sysvol, FSR2DFSR, LAPS, NTPServer, NTPType, SMBv1Client, SMBv1Server, ADWSStatus, SSL2Client, SSL2Server, TLS1Client, TLS1Server, TLS11Client, TLS11Server, Firewall, NetlogonParameter, ReadOnly, UndesiredFeatures
 
     # Return the domain details
     $DomainDetails
