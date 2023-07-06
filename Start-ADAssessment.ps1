@@ -137,7 +137,7 @@ function Write-Log {
 
     do {
         try {
-            Add-content $logpath -value $LogMessage -ErrorAction SilentlyContinue
+            Add-content $logpath -value $LogMessage -Force -ErrorAction SilentlyContinue
             $isWritten = $true
         }
         catch {
