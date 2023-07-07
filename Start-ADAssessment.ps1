@@ -2089,7 +2089,20 @@ function Get-PotentialSvcAccount {
         [Parameter(ValueFromPipeline = $true, Mandatory = $false)][pscredential]$Credential
     )
 
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $null = Get-Job | Remove-Job
 
+    $MSAs = Get-ADServiceAccount -Filter * -Server $PDC -Credential $Credential -Properties DNSHostName, PrincipalsAllowedToRetrieveManagedPassword, CanonicalName, ServicePrincipalNames, WhenCreated, WhenChanged, msDS-ManagedPasswordInterval, lastLogonTimestamp | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, Name, DNSHostName, @{l = "PrincipalsAllowedToRetrieveManagedPassword"; e = { $_.PrincipalsAllowedToRetrieveManagedPassword -join "," } } , @{l = "ServicePrincipalNames"; e = { $_.ServicePrincipalNames -join "," } } , WhenCreated, WhenChanged, msDS-ManagedPasswordInterval, @{l = "Lastlogon"; e = { [DateTime]::FromFileTime($_.LastLogonTimestamp) } }
+    $UserswithFGP = Get-ADuser -ldapfilter "(&(objectCategory=user)(msDS-PSOApplied=*))" -Server $PDC -Credential $Credential -Properties CanonicalName, Displayname, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, LastLogonTimestamp | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, SamAccountName, Displayname, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, @{l = "Lastlogon"; e = { [DateTime]::FromFileTime($_.LastLogonTimestamp) } }, @{l = "FineGrainedPasswordPolicy"; e = { (Get-ADUserResultantPasswordPolicy $_.SamAccountName).Name } }
+    $PotentialSvcUsers = Get-ADuser -filter { Enabled -eq $true } -Server $PDC -Credential $Credential -Properties CanonicalName, Displayname, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired | Where-Object { $_.CannotChangePassword -OR $_.PasswordNeverExpires -OR $_.PasswordNotRequired } | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, SamAccountName, Displayname, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, @{l = "Lastlogon"; e = { [DateTime]::FromFileTime($_.LastLogonTimestamp) } }, @{l = "FineGrainedPasswordPolicy"; e = { "NA" } }
+    $PotentialSvcUsers = ($PotentialSvcUsers | Where-Object { $_.SamAccountName -notin $UserswithFGP.SamAccountNameP }) + $UserswithFGP
+
+    $PotentialSvc = [PSCustomObject] @{
+        MSAs     = $MSAs
+        SvcUsers = $PotentialSvcUsers
+    }
+
+    return $PotentialSvc
 }
 
 # This function retrieves the permissions set on the SYSVOL and NETLOGON shares in the Active Directory domain.
@@ -2254,12 +2267,19 @@ Function Get-SystemInfo {
                 $Manufacturer = ""
                 $Model = ""
             }
-            
-            
+
+            try {
+                $dnsSettings = Get-WmiObject -Class Win32_NetworkAdapterConfiguration -ComputerName $s.Name -Filter 'IPEnabled=true'
+                $DNSDetails = $dnsSettings.DNSServerSearchOrder
+            }
+            catch {
+                $DNSDetails = $null
+            }
 
             $infoObject += [PSCustomObject]@{
                 Name            = $s.Name
                 IPAddress       = $s.IPV4Address
+                DNSDetails      = $DNSDetails -join "`n"
                 SerialNumber    = $SerialNumber
                 Manufacturer    = $Manufacturer
                 Model           = $Model
@@ -2281,6 +2301,7 @@ Function Get-SystemInfo {
             $infoObject += [PSCustomObject]@{
                 Name            = $s.Name
                 IPAddress       = $s.IPV4Address
+                DNSDetails      = ""
                 SerialNumber    = ""
                 Manufacturer    = ""
                 Model           = ""
@@ -2722,6 +2743,7 @@ Function Get-ADForestDetails {
     $DCInventory = @()
     $ADHealth = @()
     $ReplicationHealth = @()
+    $PotentialSvc = @()
     $DFSDetails = @()
 
     if (!($forestcheck)) {
@@ -2831,9 +2853,7 @@ Function Get-ADForestDetails {
             $message = "Lookup for DFS inventory in $($Domain) done."
             New-BaloonNotification -title "Information" -message $message
             Write-Log -logtext $message -logpath $logpath            
-        }
-
-        
+        }        
         
         $message = "Working over domain: $Domain DNS related details."
         New-BaloonNotification -title "Information" -message $message
@@ -2869,6 +2889,16 @@ Function Get-ADForestDetails {
             New-BaloonNotification -title "Information" -message $message
             Write-Log -logtext $message -logpath $logpath
         }
+
+        $message = "Looking for potential service accounts in domain: $Domain."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+
+        $PotentialSvc += Get-PotentialSvcAccount -DomainName $Domain -Credential $Credential
+
+        $message = "Found $(($PotentialSvc.MSAs | Where-Object {$_.Domain -eq $Domain}).count + ($PotentialSvc.SvcUsers | Where-Object {$_.Domain -eq $Domain}).count) potential service accounts in: $Domain."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
 
         $SysvolNetlogonPermissions += Get-SysvolNetlogonPermissions -DomainName $domain -Credential $Credential 
         
@@ -2968,6 +2998,8 @@ Function Get-ADForestDetails {
     $EmptyOUSummary = ($EmptyOUDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Empty OU Summary</h2>") -replace "`n", "<br>"    
     $SysvolNetlogonPermSummary = ($SysvolNetlogonPermissions | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Sysvol and Netlogon Permissions Summary</h2>") -replace "`n", "<br>"
     $SecuritySummary = ($SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>") -replace "`n", "<br>" -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>' -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
+    $MSASummary = ($PotentialSvc.MSAs | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Managed Service Account Summary</h2>") -replace "`n", "<br>"
+    $ServiceAccountSummary = ($PotentialSvc.SvcUsers | Sort-Object Domain, FineGrainedPasswordPolicy | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Potential Service Account Summary</h2>") -replace '<td>True</td>', '<td bgcolor="green">True</td>'
     $DCSummary = ($DCInventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers Inventory</h2>") -replace "`n", "<br>"
     if ($DFS -AND $DFSFlag) {
         $DFSSummary = ($DFSDetails.NameSpace | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DFS Namespace Inventory</h2>") -replace "`n", "<br>"
@@ -2978,7 +3010,7 @@ Function Get-ADForestDetails {
     New-BaloonNotification -title "Information" -message $message
     Write-Log -logtext $message -logpath $logpath
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DomainHealthSumamry $ReplhealthSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory $DCSummary $DFSSummary $DFSRepGroupSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DomainHealthSumamry $ReplhealthSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $MSASummary $ServiceAccountSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory $DCSummary $DFSSummary $DFSRepGroupSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath
 }
 
