@@ -46,7 +46,7 @@
     27. Get-DomainClientDetails         # This function gathers detailed information about client computers in the Active Directory domain, including computer properties, operating system details, and stale info.
     28. Start-SecurityCheck             # The function performs various checks and assessments to identify unsecured configurations, potential security risks, and other security-related aspects.
     29. Get-UnusedNetlogonScripts       # This function identifies unused Netlogon scripts in the Active Directory domain.
-    30. Get-PotentialSvcAccount         # YET TO COMPLETE THE FUNCTION
+    30. Get-PotentialSvcAccount         # This function identifies potential service accounts in the given domain
     31. Get-SysvolNetlogonPermissions   # This function retrieves the permissions set on the SYSVOL and NETLOGON shares in the Active Directory domain.
     32. Get-SystemInfo                  # This function collects detailed system information from client computers in the Active Directory domain, including hardware, software, and network configuration.
     33. New-Email                       # This function generates an email message.
