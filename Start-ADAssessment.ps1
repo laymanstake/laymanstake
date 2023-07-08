@@ -728,7 +728,7 @@ Function Get-ADDHCPDetails {
 
     foreach ($dhcpserver in $AllDHCPServers) {
         if (Test-Connection -ComputerName $dhcpserver -count 2 -Quiet -ErrorAction SilentlyContinue) {
-            $DHCPStatus = (get-service -Name DHCPServer -ComputerName $dhcpserver).Status
+            $DHCPStatus = (get-service -Name DHCPServer -ComputerName $dhcpserver -ErrorAction SilentlyContinue).Status
             If ($DHCPStatus -eq "Stopped") {
                 Write-Log -logtext "DHCP Service not running on DHCP Server $($dhcpserver), canot access summary" -logpath $logpath
             }
@@ -923,7 +923,7 @@ Function Get-DHCPInventory {
                 }        
             }
             catch {
-                $DHCPStatus = (get-service -Name DHCPServer -ComputerName $dhcp.DNSName).Status
+                $DHCPStatus = (get-service -Name DHCPServer -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue).Status
                 If ($DHCPStatus -eq "Stopped") {
                     Write-Log -logtext "DHCP Service not running on DHCP Server $($dhcp.DNSName)" -logpath $logpath
                 }
@@ -1210,7 +1210,7 @@ function Get-SMBv1Status {
                 default { $OSversion = "Windows Server 2003" }
             }
 
-            $smbv1ClientEnabled = (Get-Service -Name lanmanworkstation -ComputerName $Computer).DependentServices.name -contains "mrxsmb10"
+            $smbv1ClientEnabled = (Get-Service -Name lanmanworkstation -ComputerName $Computer -ErrorAction SilentlyContinue).DependentServices.name -contains "mrxsmb10"
 
     
             If ($OSversion -in ("Windows Server 2003", "Windows Server 2008")) {    
@@ -1458,7 +1458,7 @@ Function Get-ADDomainDetails {
                 TLS1Server                  = $Results[4]
                 TLS11Client                 = $Results[5]
                 TLS11Server                 = $Results[6]
-                Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc.hostname).Status
+                Firewall                    = (Get-Service -name MpsSvc -ComputerName $dc.hostname -ErrorAction SilentlyContinue).Status
                 NetlogonParameter           = $Results[0]
                 ReadOnly                    = $dc.IsReadOnly                
                 UndesiredFeatures           = $UndesiredFeature -join "`n"                
