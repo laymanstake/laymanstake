@@ -783,170 +783,227 @@ Function Get-ADDHCPDetails {
 
 # This function gathers information about DHCP servers in the Active Directory domain, including server configurations, scopes, and reservations.
 Function Get-DHCPInventory {
-    [CmdletBinding()]
-    Param(    
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
-    )
+    # Variable declaration
     
+    $jobs = @()
+    $maxParallelJobs = 50
+
     # Get all Authorized DCs from AD configuration
-    $DHCPs = Get-DhcpServerInDC    
-    $Report = @()
-    $Reservations = @()
+    $DHCPs = Get-DhcpServerInDC
+
+    $scriptBlock1 = ${function:Write-log}
+    $scriptBlock2 = ${function:New-BaloonNotification}
+    
+    $initScript = [scriptblock]::Create(@"
+    function Write-log {$scriptBlock1}
+    function New-BaloonNotification {$scriptBlock2}
+"@)
 
     foreach ($dhcp in $DHCPs) {
-        if (Test-Connection -ComputerName $dhcp.DNSName -count 2 -Quiet) { 
-            try {
+        while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
+            Start-Sleep -Milliseconds 50  # Wait for 0.05 seconds before checking again
+        }        
+
+        $ScriptBlock = {
+            param($dhcp, $logpath)
+
+            $Report = @()
+            $Reservations = @()
+
+            if ((Test-Connection -ComputerName $dhcp.DNSName -count 2 -Quiet ) -AND (Get-Service -Name DHCPServer -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue).Status -eq "Running") {                 
                 $scopes = $null
-                $scopes = (Get-DhcpServerv4Scope -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue)
-                $Res = $scopes | ForEach-Object { 
+                $scopes = (Get-DhcpServerv4Scope -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue)                    
+
+                If ($scopes) {
                     try {
-                        Get-DHCPServerv4Lease -ComputerName $dhcp.DNSName -ScopeID $_.ScopeID 
+                        $GlobalOptions = Get-DhcpServerv4OptionValue -OptionId 6, 15 -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue                        
+                        $Option015 = [string]($Globaloptions | Where-Object { $_.optionID -eq 15 } ).Value
+                        $GlobalDNSList = ($Globaloptions | Where-Object { $_.optionID -eq 6 } ).Value
+                        
+                        if ($GlobalDNSList) {
+                            $GlobalDNS1 = $GlobalDNSList[0]
+                            $GlobalDNS2 = $GlobalDNSList[1]
+                            $GlobalDNS3 = $GlobalDNSList[2]
+                        }
                     }
                     catch {
-                        Write-Log -logtext "Could not get reservation details for scope $($_.ScopeID) on DHCP Server $($dhcp.DNSName) : $($_.Exception.Message)" -logpath $logpath        
+                        Write-Log -logtext "Could not get option values (6 or 15) from DHCP Server $($dhcp.DNSName) : $($_.Exception.Message)" -logpath $logpath                        
                     }
-                } | Select-Object ScopeId, IPAddress, HostName, Description, ClientID, AddressState
-    
-                ForEach ($Temp in $Res ) {
-                    $Reservation = [PSCustomObject]@{
-                        ServerName   = $dhcp.DNSName
-                        ScopeID      = $Temp.ScopeId
-                        IPAddress    = $Temp.IPAddress
-                        HostName     = $Temp.HostName
-                        Description  = $Temp.Description
-                        ClientID     = $Temp.ClientID
-                        AddressState = $Temp.AddressState
-                    } | select-object ServerName, ScopeID, IPAddress, HostName, Description, ClientID, AddressState
-                    $Reservations += $Reservation
-                }
-
-                If ($null -ne $scopes) {                    
-                    #getting global DNS settings, in case scopes are configured to inherit these settings
-                    try {
-                        $GlobalDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
-                    }
-                    catch { $GlobalDNSList = $null }
-                    
-                    Try { $Option015 = [String](Get-DhcpServerv4OptionValue -OptionId 015 -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
-                    Catch { $Option015 = "" }
 
                     $scopes | ForEach-Object {
-                        $row = "" | Select-Object Hostname, ScopeID, SubnetMask, Name, State, StartRange, EndRange, LeaseDuration, Description, DNS1, DNS2, DNS3, DNS4, DNS5, GDNS1, GDNS2, GDNS3, GDNS4, GDNS5, Router, DoGroupId, Option160, option015, Scopeoption015, Exclusions
-                        Try { $DoGroupId = [String](Get-DhcpServerv4OptionValue -OptionId 234 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
-                        Catch { $DoGroupId = "" }
+                        try {
+                            $ScopeOptions = Get-DhcpServerv4OptionValue -OptionId 3, 6, 15, 160, 234 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue
+                            
+                            $gateways = ($ScopeOptions | Where-Object { $_.optionID -eq 3 } ).Value
+                            if ($gateways) {
+                                $gateway = $gateways[0]
+                            }
+                            
+                            $ScopeOption015 = [string]($ScopeOptions | Where-Object { $_.optionID -eq 15 } ).Value
+                            $ScopeOption160 = [string]($ScopeOptions | Where-Object { $_.optionID -eq 160 } ).Value
+                            $DoGroupId = [string]($ScopeOptions | Where-Object { $_.optionID -eq 234 } ).Value
+                            $ScopeDNSList = ($ScopeOptions | Where-Object { $_.optionID -eq 6 } ).Value
 
-                        Try { $Option160 = [String](Get-DhcpServerv4OptionValue -OptionId 160 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
-                        Catch { $Option160 = "" }
-
-                        Try { $ScopeOption015 = [String](Get-DhcpServerv4OptionValue -OptionId 015 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).value }
-                        Catch { $ScopeOption015 = "" }
-
-                        $router = @()
-                        Try { $router = (Get-DhcpServerv4OptionValue -ComputerName $dhcp.DNSName -OptionId 3 -ScopeID $_.ScopeId -ErrorAction:SilentlyContinue).Value }
-                        Catch { $router = ("") }
-
-                        $ScopeExclusions = @()
-                        Try { $ScopeExclusions = Get-DhcpServerv4ExclusionRange -ComputerName $dhcp.DNSName -ScopeID $_.ScopeId -ErrorAction:SilentlyContinue }
-                        Catch { $ScopeExclusions = ("") }
-
-                        $Exclusions = ""
-                        $z = 0
-                        If ($ScopeExclusions) {
-                            ForEach ($ScopeExclusion in $ScopeExclusions) {
-                                $z++
-                                $ExclusionValue = [String]$ScopeExclusion.StartRange + "-" + [String]$ScopeExclusion.EndRange
-                                if ($z -ge 2) {	$Exclusions = $Exclusions + "," + $ExclusionValue } else { $Exclusions = $ExclusionValue }
+                            if ($ScopeDNSList) {
+                                $ScopeDNS1 = $ScopeDNSList[0]
+                                $ScopeDNS2 = $ScopeDNSList[1]
+                                $ScopeDNS3 = $ScopeDNSList[2]
                             }
                         }
-
-                        if ($router) {
-                            $row.Router = $router[0]
+                        catch {
+                            Write-Log -logtext "Could not get option values (3,15,160,234) for Scope $($_.Name) on DHCP Server $($dhcp.DNSName) : $($_.Exception.Message)" -logpath $logpath
                         }
-                        else {
-                            $row.Router = ""
-                        }                
-                        $row.Hostname = $dhcp.DNSName
-                        $row.ScopeID = $_.ScopeID
-                        $row.SubnetMask = $_.SubnetMask
-                        $row.Name = $_.Name
-                        $row.State = $_.State
-                        $row.StartRange = $_.StartRange
-                        $row.EndRange = $_.EndRange
-                        $row.LeaseDuration = $_.LeaseDuration
-                        $row.Description = $_.Description
-                        $row.DoGroupId = $DoGroupId
-                        $row.Option160 = $Option160
-                        $row.Option015 = $Option015
-                        $row.ScopeOption015 = $ScopeOption015
-                        $row.Exclusions = $Exclusions
-                        $ScopeDNSList = $null
+                        
+                        Try { 
+                            $ScopeExclusions = Get-DhcpServerv4ExclusionRange -ComputerName $dhcp.DNSName -ScopeID $_.ScopeId -ErrorAction SilentlyContinue | Select-Object @{l = "Exclusions"; e = { "$($_.StartRange.IPAddressToString) - $($_.EndRange.IPAddressToString)" } }
+                        }
+                        Catch { 
+                            Write-Log -logtext "Issue in getting exclusio details for scope $($_.Name) from DHCP Server $($dhcp.DNSName) : $($_.Exception.Message)" -logpath $logpath
+                        }
+
                         try {
-                            $ScopeDNSList = (Get-DhcpServerv4OptionValue -OptionId 6 -ScopeID $_.ScopeId -ComputerName $dhcp.DNSName -ErrorAction:SilentlyContinue).Value
+                            $ResValues = Get-DHCPServerv4Lease -ComputerName $dhcp.DNSName -ScopeID $_.ScopeID -ErrorAction SilentlyContinue | Select-Object ScopeId, IPAddress, HostName, Description, ClientID, AddressState
+                            $ResValues | ForEach-Object {
+                                $Reservation = [PSCustomObject]@{
+                                    ServerName   = $dhcp.DNSName
+                                    ScopeID      = $_.ScopeId
+                                    IPAddress    = $_.IPAddress
+                                    HostName     = $_.HostName
+                                    Description  = $_.Description
+                                    ClientID     = $_.ClientID
+                                    AddressState = $_.AddressState
+                                }
+
+                                $Reservations += $Reservation
+                            }
                         }
-                        Catch {
-                            $ScopeDNSList = $null
+                        catch {
+                            Write-Log -logtext "Could not get reservation details for scope $($_.ScopeID) on DHCP Server $($dhcp.DNSName) : $($_.Exception.Message)" -logpath $logpath        
+                        }                        
+
+                        $ScopeDetail = [PSCustomObject]@{
+                            DHCPName       = $dhcp.DNSName
+                            DHCPAddress    = $dhcp.IPAddress
+                            ScopeID        = $_.ScopeID
+                            SubnetMask     = $_.SubnetMask
+                            Gateway        = $gateway
+                            ScopeName      = $_.Name
+                            State          = $_.State
+                            StartRange     = $_.StartRange
+                            Endrange       = $_.EndRange
+                            LeaseDuration  = $_.LeaseDuration
+                            Description    = $_.Description
+                            ScopeOption15  = $ScopeOption015
+                            Exclusions     = $ScopeExclusions.Exclusions -join "`n"
+                            GlobalOption15 = $Option015
+                            DOGroupID      = $DoGroupID
+                            Option160      = $ScopeOption160
+                            ScopeDNS1      = $ScopeDNS1
+                            ScopeDNS2      = $ScopeDNS2
+                            ScopeDNS3      = $ScopeDNS3
+                            GlobalDNS1     = $GlobalDNS1
+                            GlobalDNS2     = $GlobalDNS2
+                            GlobalDNS3     = $GlobalDNS3                            
                         }
 
-                        If (($null -eq $ScopeDNSList) -and ($null -ne $GlobalDNSList)) {
-                            $row.GDNS1 = $GlobalDNSList[0]
-                            $row.GDNS2 = $GlobalDNSList[1]
-                            $row.GDNS3 = $GlobalDNSList[2]
-                            $row.GDNS4 = $GlobalDNSList[3]
-                            $row.GDNS5 = $GlobalDNSList[4]
-                        }
-                        ElseIf (($null -ne $ScopeDNSList) -and ($null -ne $GlobalDNSList)) {
-                            $row.GDNS1 = $GlobalDNSList[0]
-                            $row.GDNS2 = $GlobalDNSList[1]
-                            $row.GDNS3 = $GlobalDNSList[2]
-                            $row.GDNS4 = $GlobalDNSList[3]
-                            $row.GDNS5 = $GlobalDNSList[4]
-                            $row.DNS1 = $ScopeDNSList[0]
-                            $row.DNS2 = $ScopeDNSList[1]
-                            $row.DNS3 = $ScopeDNSList[2]
-                            $row.DNS4 = $ScopeDNSList[3]
-                            $row.DNS5 = $ScopeDNSList[4]
-                        }
-                        Else {
-                            $row.DNS1 = $ScopeDNSList[0]
-                            $row.DNS2 = $ScopeDNSList[1]
-                            $row.DNS3 = $ScopeDNSList[2]
-                            $row.DNS4 = $ScopeDNSList[3]
-                            $row.DNS5 = $ScopeDNSList[4]
-                        }
-                        $row
-                        $Report += $row
-                    }
-                }
-                Else {            
-                    $row = "" | Select-Object Hostname, ScopeID, SubnetMask, Name, State, StartRange, EndRange, LeaseDuration, Description, DNS1, DNS2, DNS3, DNS4, DNS5, GDNS1, GDNS2, GDNS3, GDNS4, GDNS5, Router, DoGroupId, Option160, option015, Scopeoption015, Exclusions
-                    $row.Hostname = $dhcp.DNSName
-                    $Report += $row
-                }        
-            }
-            catch {
-                $DHCPStatus = (get-service -Name DHCPServer -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue).Status
-                If ($DHCPStatus -eq "Stopped") {
-                    Write-Log -logtext "DHCP Service not running on DHCP Server $($dhcp.DNSName)" -logpath $logpath
+                        $Report += $ScopeDetail
+                    }                    
                 }
                 else {
-                    Write-Log -logtext "Could not get scopes etc details for DHCP Server $($dhcp.DNSName) : $($_.Exception.Message)" -logpath $logpath
-                }
-            }
-        }
-        else {
-            $message = "The DHCP Server $($dhcp.DNSName) not reachable, would be skipped."
-            New-BaloonNotification -title "Information" -message $message
-            Write-Log -logtext $message -logpath $logpath    
-        }
-        $message = "Working over DHCP Server $($dhcp.DNSName) related details."
-        New-BaloonNotification -title "Information" -message $message
-        Write-Log -logtext $message -logpath $logpath
-    }    
+                    $message = "No scopes found on the DHCP Server $($dhcp.DNSName)."
+                    New-BaloonNotification -title "Information" -message $message
+                    Write-Log -logtext $message -logpath $logpath                
 
+                    $ScopeDetail = [PSCustomObject]@{
+                        DHCPName       = $dhcp.DNSName
+                        DHCPAddress    = $dhcp.IPAddress
+                        ScopeID        = "No scopes"
+                        SubnetMask     = "No scopes"
+                        Gateway        = "No scopes"
+                        ScopeName      = "No scopes"
+                        State          = "No scopes"
+                        StartRange     = "No scopes"
+                        Endrange       = "No scopes"
+                        LeaseDuration  = "No scopes"
+                        Description    = "No scopes"
+                        ScopeDNS1      = "No scopes"
+                        ScopeDNS2      = "No scopes"
+                        ScopeDNS3      = "No scopes"
+                        ScopeOption15  = "No scopes"
+                        Exclusions     = "No scopes"
+                        GlobalDNS1     = "No scopes"
+                        GlobalDNS2     = "No scopes"
+                        GlobalDNS3     = "No scopes"
+                        GlobalOption15 = "No scopes"
+                        DOGroupID      = "No scopes"
+                        Option160      = "No scopes"
+                    }
+
+                    $Report += $ScopeDetail
+                }                
+            }
+            else {
+                $message = "The DHCP Server $($dhcp.DNSName) not reachable or the service is stopped, would be skipped."
+                New-BaloonNotification -title "Information" -message $message
+                Write-Log -logtext $message -logpath $logpath                
+
+                $ScopeDetail = [PSCustomObject]@{
+                    DHCPName       = $dhcp.DNSName
+                    DHCPAddress    = $dhcp.IPAddress
+                    ScopeID        = "Not reachable"
+                    SubnetMask     = "Not reachable"
+                    Gateway        = "Not reachable"
+                    ScopeName      = "Not reachable"
+                    State          = "Not reachable"
+                    StartRange     = "Not reachable"
+                    Endrange       = "Not reachable"
+                    LeaseDuration  = "Not reachable"
+                    Description    = "Not reachable"
+                    ScopeDNS1      = "Not reachable"
+                    ScopeDNS2      = "Not reachable"
+                    ScopeDNS3      = "Not reachable"
+                    ScopeOption15  = "Not reachable"
+                    Exclusions     = "Not reachable"
+                    GlobalDNS1     = "Not reachable"
+                    GlobalDNS2     = "Not reachable"
+                    GlobalDNS3     = "Not reachable"
+                    GlobalOption15 = "Not reachable"
+                    DOGroupID      = "Not reachable"
+                    Option160      = "Not reachable"
+                }
+
+                $Report += $ScopeDetail | Select-Object DHCPName, DHCPAddress, ScopeName, Description, ScopeID, SubnetMask, StartRange, Endrange, LeaseDuration, State, Gateway, ScopeOption15, Exclusions, DOGroupID, Option160, GlobalOption15, ScopeDNS1, ScopeDNS2, ScopeDNS3, GlobalDNS1, GlobalDNS2, GlobalDNS3
+            }
+
+            $message = "Working over DHCP Server $($dhcp.DNSName) related details."
+            New-BaloonNotification -title "Information" -message $message
+            Write-Log -logtext $message -logpath $logpath
+
+            $Output = [PSCustomObject]@{
+                Report      = $Report
+                Reservation = $Reservations
+            }
+
+            return $Output
+        }
+
+        $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $dhcp, $logpath -InitializationScript $initscript
+    }
+
+    Write-Log -logtext "Powershell jobs submitted for looking into $($DHCPs.count) DHCP Server details" -logpath $logpath
+    $null = $jobs | Wait-Job 
+
+    $result = @()
+    foreach ($job in $jobs) {
+        $result += Receive-Job -Job $job
+    }
+    $null = Get-Job | remove-Job
+
+    Write-Log -logtext "Powershell jobs completed for $($DHCPs.count) DHCP Server details" -logpath $logpath
     
     $Details = [pscustomobject] @{
-        Inventory   = $Report
-        Reservation = $Reservations
+        Inventory   = $result.Report
+        Reservation = $result.Reservation
     }
     
     Return $Details
