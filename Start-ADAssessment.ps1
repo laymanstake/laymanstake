@@ -26,35 +26,34 @@
     6.  Get-ADDNSDetails                # This function retrieves detailed information about the Active Directory DNS configuration.
     7.  Get-ADDNSZoneDetails            # This function provides detailed information about Active Directory DNS zones, including zone properties, zone transfers, and DNS server settings.
     8.  Get-ADGroupMemberRecursive      # This function recursively retrieves all members of an Active Directory group, including nested groups and their members.  
-    9.  Get-AdminCountDetails           # This function identifies user accounts with the "AdminCount" attribute set, which can indicate privileged accounts and also which should not have admincount set.
-    10. Get-ADDHCPDetails               # Return the details of DHCP Servers
-    11. Get-DHCPInventory               # This function gathers information about DHCP servers in the Active Directory domain, including server configurations, scopes, and reservations.
-    12. Get-EmptyOUDetails              # This function identifies empty Organizational Units (OUs) in the Active Directory domain.
-    13. Get-ADObjectsToClean            # This function identifies Active Directory objects that can be cleaned up, such as orphaned and lingering objects from given domain.
-    14. Get-ADGPOSummary                # This function summarizes Group Policy Objects (GPOs) in the Active Directory domain, including linked locations, and scope
-    15. Get-GPOInventory                # This function provides an inventory of GPOs in the Active Directory domain, including their names, scope, wmi filters and applied locations.
-    16. Get-ADPasswordPolicy            # This function retrieves the password policy settings configured in the Active Directory domain.
-    17. Get-FineGrainedPasswordPolicy   # This function retrieves the settings of fine-grained password policies in the Active Directory domain.
-    18. Get-SMBv1Status                 # This function checks the status of SMBv1 (Server Message Block version 1) on the local or remote systems.
-    19. Get-ADDomainDetails             # This function gathers detailed information about the Active Directory domain, including domain name, domain controllers, forest, and domain functional levels.
-    20. Get-ADSiteDetails               # This function provides detailed information about Active Directory sites, including site names, subnet assignments, and site links.
-    21. Get-PrivGroupDetails            # This function retrieves information about privileged groups in the Active Directory domain.
-    22. Get-ADGroupDetails              # This function retrieves detailed information about Active Directory groups.
-    23. Get-ADUserDetails               # This function gathers detailed information about Active Directory user accounts, including user properties and account status.
-    24. Get-BuiltInUserDetails          # This function retrieves information about built-in user accounts in the Active Directory domain.
-    25. Get-OrphanedFSP                 # This function identifies Orphaned Foreign Security Principals for the given domain, be cautious as domain connectivity issues can flag false positive.
-    26. Get-DomainServerDetails         # This function gathers detailed information about servers in the Active Directory domain, including computer properties, operating system details, and stale info.
-    27. Get-DomainClientDetails         # This function gathers detailed information about client computers in the Active Directory domain, including computer properties, operating system details, and stale info.
-    28. Start-SecurityCheck             # The function performs various checks and assessments to identify unsecured configurations, potential security risks, and other security-related aspects.
-    29. Get-UnusedNetlogonScripts       # This function identifies unused Netlogon scripts in the Active Directory domain.
-    30. Get-PotentialSvcAccount         # This function identifies potential service accounts in the given domain
-    31. Get-SysvolNetlogonPermissions   # This function retrieves the permissions set on the SYSVOL and NETLOGON shares in the Active Directory domain.
-    32. Get-SystemInfo                  # This function collects detailed system information from client computers in the Active Directory domain, including hardware, software, and network configuration.
-    33. New-Email                       # This function generates an email message.
-    34. New-BaloonNotification          # This function creates a balloon notification to display on client computers.
-    35. Test-ADHealth                   # This function performs a health check of the Active Directory environment, including checks for replication, DNS, AD trust, and other common issues.
-    36. Get-ADReplicationHealth         # This function checks the replication health of domain controllers in the Active Directory domain.
-    37. Get-ADForestDetails             # This function retrieves detailed information about the Active Directory forest using the earlier defined functions and generates the html report.
+    9.  Get-AdminCountDetails           # This function identifies user accounts with the "AdminCount" attribute set, which can indicate privileged accounts and also which should not have admincount set.    
+    10. Get-DHCPInventory               # This function gathers information about DHCP servers in the Active Directory domain, including server configurations, scopes, and reservations.
+    11. Get-EmptyOUDetails              # This function identifies empty Organizational Units (OUs) in the Active Directory domain.
+    12. Get-ADObjectsToClean            # This function identifies Active Directory objects that can be cleaned up, such as orphaned and lingering objects from given domain.
+    13. Get-ADGPOSummary                # This function summarizes Group Policy Objects (GPOs) in the Active Directory domain, including linked locations, and scope
+    14. Get-GPOInventory                # This function provides an inventory of GPOs in the Active Directory domain, including their names, scope, wmi filters and applied locations.
+    15. Get-ADPasswordPolicy            # This function retrieves the password policy settings configured in the Active Directory domain.
+    16. Get-FineGrainedPasswordPolicy   # This function retrieves the settings of fine-grained password policies in the Active Directory domain.
+    17. Get-SMBv1Status                 # This function checks the status of SMBv1 (Server Message Block version 1) on the local or remote systems.
+    18. Get-ADDomainDetails             # This function gathers detailed information about the Active Directory domain, including domain name, domain controllers, forest, and domain functional levels.
+    19. Get-ADSiteDetails               # This function provides detailed information about Active Directory sites, including site names, subnet assignments, and site links.
+    20. Get-PrivGroupDetails            # This function retrieves information about privileged groups in the Active Directory domain.
+    21. Get-ADGroupDetails              # This function retrieves detailed information about Active Directory groups.
+    22. Get-ADUserDetails               # This function gathers detailed information about Active Directory user accounts, including user properties and account status.
+    23. Get-BuiltInUserDetails          # This function retrieves information about built-in user accounts in the Active Directory domain.
+    24. Get-OrphanedFSP                 # This function identifies Orphaned Foreign Security Principals for the given domain, be cautious as domain connectivity issues can flag false positive.
+    25. Get-DomainServerDetails         # This function gathers detailed information about servers in the Active Directory domain, including computer properties, operating system details, and stale info.
+    26. Get-DomainClientDetails         # This function gathers detailed information about client computers in the Active Directory domain, including computer properties, operating system details, and stale info.
+    27. Start-SecurityCheck             # The function performs various checks and assessments to identify unsecured configurations, potential security risks, and other security-related aspects.
+    28. Get-UnusedNetlogonScripts       # This function identifies unused Netlogon scripts in the Active Directory domain.
+    29. Get-PotentialSvcAccount         # This function identifies potential service accounts in the given domain
+    30. Get-SysvolNetlogonPermissions   # This function retrieves the permissions set on the SYSVOL and NETLOGON shares in the Active Directory domain.
+    31. Get-SystemInfo                  # This function collects detailed system information from client computers in the Active Directory domain, including hardware, software, and network configuration.
+    32. New-Email                       # This function generates an email message.
+    33. New-BaloonNotification          # This function creates a balloon notification to display on client computers.
+    34. Test-ADHealth                   # This function performs a health check of the Active Directory environment, including checks for replication, DNS, AD trust, and other common issues.
+    35. Get-ADReplicationHealth         # This function checks the replication health of domain controllers in the Active Directory domain.
+    36. Get-ADForestDetails             # This function retrieves detailed information about the Active Directory forest using the earlier defined functions and generates the html report.
 
 #>
 
@@ -713,74 +712,6 @@ Function Get-AdminCountDetails {
     return $AdminCountDetails
 }
 
-# Return the details of DHCP Servers
-Function Get-ADDHCPDetails {  
-    [CmdletBinding()]
-    Param(    
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,    
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
-    )
-
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
-    $null = Get-Job | Remove-Job
-    $configPartition = (Get-ADforest).PartitionsContainer.Replace("CN=Partitions,", "")
-    $AllDHCPServers = (Get-ADObject -SearchBase $configPartition -Filter "objectclass -eq 'dhcpclass' -AND Name -ne 'dhcproot'" -Server $PDC -Credential $Credential).Name
-    $DHCPDetails = @()
-
-    foreach ($dhcpserver in $AllDHCPServers) {
-        if (Test-Connection -ComputerName $dhcpserver -count 2 -Quiet -ErrorAction SilentlyContinue) {
-            $DHCPStatus = (get-service -Name DHCPServer -ComputerName $dhcpserver -ErrorAction SilentlyContinue).Status
-            If ($DHCPStatus -eq "Stopped") {
-                Write-Log -logtext "DHCP Service not running on DHCP Server $($dhcpserver), canot access summary" -logpath $logpath
-            }
-            Else {
-                try {
-                    $Allscopes = @(Get-DhcpServerv4Scope -ComputerName $dhcpserver -ErrorAction:SilentlyContinue)
-                    $InactiveScopes = @($Allscopes | Where-Object { $_.State -eq 'Inactive' })
-                
-                    $NoLeaseScopes = @()
-                    foreach ($Scope in $Allscopes) {
-                        $Leases = Get-DhcpServerv4Lease -ComputerName $dhcpserver -ScopeId $Scope.ScopeId
-                        if ($Leases.Count -eq 0) {
-                            $NoLeaseScopes += $Scope.ScopeID
-                        }
-                    }
-
-                    try {
-                        $OS = (Get-WmiObject win32_operatingSystem -ComputerName $dhcpserver -Property Caption).Caption                
-                    }
-                    catch {
-                        $OS = "Access denied"                        
-                        Write-Log -logtext "Could not get operating system details for DHCP Server $dhcpserver : $($_.Exception.Message)" -logpath $logpath
-                    }                    
-                }
-                catch {
-                    Write-Log -logtext "Failed to get details from DHCP Server $dhcpserver : $($_.Exception.Message)" -logpath $logpath
-                    $OS = "Access denied"
-                    $Allscopes = @()
-                    $InactiveScopes = @()
-                    $NoLeaseScopes = @()
-                }
-
-                $DHCPDetails += [PSCustomObject]@{
-                    ServerName         = $dhcpserver
-                    IPAddress          = ([System.Net.Dns]::GetHostAddresses($dhcpserver) | Where-Object { $_.AddressFamily -eq "InterNetwork" }).IPAddressToString -join "`n"
-                    OperatingSystem    = $OS 
-                    ScopeCount         = $Allscopes.count
-                    InactiveScopeCount = $InactiveScopes.count
-                    ScopeWithNoLease   = $NoLeaseScopes -join "`n"
-                    NoLeaseScopeCount  = $NoLeaseScopes.count                
-                }
-            }
-        }
-        else {
-            Write-Log -logtext "DHCP Server $($dhcpserver) not reachable over ICMP, canot access summary" -logpath $logpath
-        }
-    }
-    
-    return $DHCPDetails
-}
-
 # This function gathers information about DHCP servers in the Active Directory domain, including server configurations, scopes, and reservations.
 Function Get-DHCPInventory {
     # Variable declaration
@@ -809,10 +740,19 @@ Function Get-DHCPInventory {
 
             $Report = @()
             $Reservations = @()
+            $Summary = @()
 
             if ((Test-Connection -ComputerName $dhcp.DNSName -count 2 -Quiet ) -AND (Get-Service -Name DHCPServer -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue).Status -eq "Running") {                 
                 $scopes = $null
-                $scopes = (Get-DhcpServerv4Scope -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue)                    
+                $scopes = (Get-DhcpServerv4Scope -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue)
+                
+                try {
+                    $OS = (Get-WmiObject win32_operatingSystem -ComputerName $dhcp.DNSName -Property Caption -ErrorAction SilentlyContinue).Caption                
+                }
+                catch {
+                    $OS = "Access denied"                        
+                    Write-Log -logtext "Could not get operating system details for DHCP Server $($dhcp.DNSName) : $($_.Exception.Message)" -logpath $logpath
+                }                    
 
                 If ($scopes) {
                     try {
@@ -828,6 +768,14 @@ Function Get-DHCPInventory {
                     }
                     catch {
                         Write-Log -logtext "Could not get option values (6 or 15) from DHCP Server $($dhcp.DNSName) : $($_.Exception.Message)" -logpath $logpath                        
+                    }
+
+                    $NoLeaseScopes = @()
+                    foreach ($Scope in $scopes) {
+                        $Leases = Get-DhcpServerv4Lease -ComputerName $dhcp.DNSName -ScopeId $Scope.ScopeId -ErrorAction SilentlyContinue
+                        if ($Leases.Count -eq 0) {
+                            $NoLeaseScopes += $Scope.ScopeID
+                        }
                     }
 
                     $scopes | ForEach-Object {
@@ -862,13 +810,13 @@ Function Get-DHCPInventory {
                         }
 
                         try {
-                            $ResValues = Get-DHCPServerv4Lease -ComputerName $dhcp.DNSName -ScopeID $_.ScopeID -ErrorAction SilentlyContinue | Select-Object ScopeId, IPAddress, HostName, Description, ClientID, AddressState
+                            $ResValues = Get-DhcpServerv4Reservation -ComputerName $dhcp.DNSName -ScopeID $_.ScopeID -ErrorAction SilentlyContinue | Select-Object ScopeId, IPAddress, Name, Description, ClientID, AddressState
                             $ResValues | ForEach-Object {
                                 $Reservation = [PSCustomObject]@{
                                     ServerName   = $dhcp.DNSName
                                     ScopeID      = $_.ScopeId
                                     IPAddress    = $_.IPAddress
-                                    HostName     = $_.HostName
+                                    HostName     = $_.Name
                                     Description  = $_.Description
                                     ClientID     = $_.ClientID
                                     AddressState = $_.AddressState
@@ -907,12 +855,32 @@ Function Get-DHCPInventory {
                         }
 
                         $Report += $ScopeDetail
-                    }                    
+                    }
+
+                    $Summary += [PSCustomObject]@{
+                        DHCPName           = $dhcp.DNSName
+                        DHCPAddress        = $dhcp.IPAddress
+                        OperatingSystem    = $OS
+                        ScopeCount         = $scopes.count
+                        InactiveScopeCount = @($scopes | Where-Object { $_.State -eq 'Inactive' }).count
+                        ScopeWithNoLease   = $NoLeaseScopes -join "`n"
+                        NoLeaseScopeCount  = $NoLeaseScopes.count
+                    }
                 }
                 else {
                     $message = "No scopes found on the DHCP Server $($dhcp.DNSName)."
                     New-BaloonNotification -title "Information" -message $message
-                    Write-Log -logtext $message -logpath $logpath                
+                    Write-Log -logtext $message -logpath $logpath
+
+                    $Summary += [PSCustomObject]@{
+                        DHCPName           = $dhcp.DNSName
+                        DHCPAddress        = $dhcp.IPAddress
+                        OperatingSystem    = $OS
+                        ScopeCount         = 0
+                        InactiveScopeCount = 0
+                        ScopeWithNoLease   = ""
+                        NoLeaseScopeCount  = 0
+                    }
 
                     $ScopeDetail = [PSCustomObject]@{
                         DHCPName       = $dhcp.DNSName
@@ -945,7 +913,17 @@ Function Get-DHCPInventory {
             else {
                 $message = "The DHCP Server $($dhcp.DNSName) not reachable or the service is stopped, would be skipped."
                 New-BaloonNotification -title "Information" -message $message
-                Write-Log -logtext $message -logpath $logpath                
+                Write-Log -logtext $message -logpath $logpath
+
+                $Summary += [PSCustomObject]@{
+                    DHCPName           = $dhcp.DNSName
+                    DHCPAddress        = $dhcp.IPAddress
+                    OperatingSystem    = ""
+                    ScopeCount         = 0
+                    InactiveScopeCount = 0
+                    ScopeWithNoLease   = ""
+                    NoLeaseScopeCount  = 0
+                }
 
                 $ScopeDetail = [PSCustomObject]@{
                     DHCPName       = $dhcp.DNSName
@@ -982,6 +960,7 @@ Function Get-DHCPInventory {
             $Output = [PSCustomObject]@{
                 Report      = $Report
                 Reservation = $Reservations
+                Summary     = $Summary
             }
 
             return $Output
@@ -1004,6 +983,7 @@ Function Get-DHCPInventory {
     $Details = [pscustomobject] @{
         Inventory   = $result.Report
         Reservation = $result.Reservation
+        Summary     = $result.Summary
     }
     
     Return $Details
@@ -2995,11 +2975,11 @@ Function Get-ADForestDetails {
         $message = "Looking for all DHCP servesr in forest: $forest and their scope details. It might take long time"
         New-BaloonNotification -title "Caution" -message $message -icon Warning
         Write-Log -logtext $message -logpath $logpath
-
-        $DHCPDetails = Get-ADDHCPDetails -Credential $Credential -DomainName $domain
+        
         $DHCPInventory = Get-DHCPInventory
+        $DHCPDetails = $DHCPInventory.Summary
         $DHCPSummary = ($DHCPDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Summary</h2>") -replace "`n", "<br>"
-        $DHCPInventorySummary = ($DHCPInventory.Inventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Inventory</h2>") -replace "`n", "<br>" -replace '<td>Inactive</td>', '<td bgcolor="red">Inactive</td>'
+        $DHCPInventorySummary = ($DHCPInventory.Inventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Inventory</h2>") -replace "`n", "<br>" -replace '<td>Inactive</td>', '<td bgcolor="yellow">Inactive</td>' -replace '<td>Not reachable</td>', '<td bgcolor="red">Not reachable</td>' -replace '<td>No scopes</td>', '<td bgcolor="yellow">No scopes</td>'
         $DHCPResInventory = ($DHCPInventory.reservation | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DHCP Server Reservation Inventory</h2>") -replace "`n", "<br>"
         
         $message = "DHCP Server information in forest: $forest collected"
