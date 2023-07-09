@@ -533,52 +533,91 @@ Function Get-ADDNSDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
 
     $DNSServerDetails = @()
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $jobs = @()
+    $maxParallelJobs = 50
+    $scriptBlock1 = ${function:Write-log}    
+    
+    $initScript = [scriptblock]::Create(@"
+    function Write-log {$scriptBlock1}    
+"@)
+
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
     $null = Get-Job | Remove-Job    
     
     try {
-        $DNSServers = (Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { Get-WmiObject  -Class Win32_serverfeature  -ComputerName $_.Name -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "DNS Server" } } | Select-Object Name, IPv4Address
+        $DNSServers = (Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { Get-WmiObject -Class Win32_serverfeature -ComputerName $_.Name -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "DNS Server" } } | Select-Object Name, IPv4Address
     }
     catch {
         Write-Log -logtext "Failed to get DNS servers list as one or more DC denied service details access : $($_.Exception.Message)" -logpath $logpath
     }
 
     ForEach ($DNSServer in $DNSServers) {
-        try {
-            $Scavenging = Get-DnsServerScavenging -ComputerName $DNSServer.Name -ErrorAction SilentlyContinue
-            $LastScavengeTime = $Scavenging.LastScavengeTime
-            if ($LastScavengeTime) {
-                $ScanvengingState = $true # This is a workaround since for corner cases, scanvenging would not be enabled for server but specific zones only and tedius to show that in summary table
-            }
-            else {
-                $ScanvengingState = $false
-                $LastScavengeTime = ""
-            }
-        }
-        catch {
-            Write-Log -logtext "Could not get DNS Scanvenging information from DNS Server $($DNSServer.Name) : $($_.Exception.Message)" -logpath $logpath
+        while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
+            Start-Sleep -Milliseconds 50  # Wait for 0.05 seconds before checking again
         }
 
-        try {
-            $Forwarders = (Get-DnsServerForwarder -ComputerName $DNSServer.Name -ErrorAction SilentlyContinue).IPAddress
-        }
-        catch {
-            Write-Log -logtext "Could not get DNS Forwarder info from DNS Server $($DNSServer.Name) : $($_.Exception.Message)" -logpath $logpath
+        $ScriptBlock = {
+            param ($DNSServer, $PDC, $DomainName, [pscredential]$Credential)
+
+            try {
+                $Scavenging = Get-DnsServerScavenging -ComputerName $DNSServer.Name -ErrorAction SilentlyContinue
+                $LastScavengeTime = $Scavenging.LastScavengeTime
+                if ($LastScavengeTime) {
+                    $ScanvengingState = $true # This is a workaround since for corner cases, scanvenging would not be enabled for server but specific zones only and tedius to show that in summary table
+                }
+                else {
+                    $ScanvengingState = $false
+                    $LastScavengeTime = ""
+                }
+            }
+            catch {
+                Write-Log -logtext "Could not get DNS Scanvenging information from DNS Server $($DNSServer.Name) : $($_.Exception.Message)" -logpath $logpath
+            }
+
+            try {
+                $Forwarders = (Get-DnsServerForwarder -ComputerName $DNSServer.Name -ErrorAction SilentlyContinue).IPAddress
+            }
+            catch {
+                Write-Log -logtext "Could not get DNS Forwarder info from DNS Server $($DNSServer.Name) : $($_.Exception.Message)" -logpath $logpath
+            }
+
+            try {
+                $OS = (Get-ADComputer $DNSServer.Name -Properties OperatingSystem -Server $PDC -Credential $Credential).OperatingSystem
+            }
+            catch {
+                $OS = "Access denied"
+                Write-Log -logtext "Could not get Operating System info from DNS Server $($DNSServer.Name) : $($_.Exception.Message)" -logpath $logpath
+            }
+
+            $Info = [PSCustomObject]@{
+                DomainName       = $DomainName
+                ServerName       = $DNSServer.Name
+                IPAddress        = $DNSServer.IPv4Address
+                OperatingSystem  = $OS
+                Forwarders       = $Forwarders -join "`n"
+                ScanvengingState = $ScanvengingState            
+                LastScavengeTime = $LastScavengeTime
+            }
+
+            return $Info
         }
 
-        $DNSServerDetails += [PSCustomObject]@{
-            ServerName       = $DNSServer.Name
-            IPAddress        = $DNSServer.IPv4Address
-            OperatingSystem  = (Get-ADComputer $DNSServer.Name -Properties OperatingSystem -Server $PDC -Credential $Credential).OperatingSystem
-            Forwarders       = $Forwarders -join "`n"
-            ScanvengingState = $ScanvengingState            
-            LastScavengeTime = $LastScavengeTime
-        }        
+        $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $DNSServer, $PDC, $DomainName, $Credential -InitializationScript $initscript
     }
+
+    Write-Log -logtext "Powershell jobs submitted for looking into $($DNSServers.count) DNS Server details in $DomainName" -logpath $logpath
+    
+    $null = $jobs | Wait-Job    
+    foreach ($job in $jobs) {
+        $DNSServerDetails += Receive-Job -Job $job | Select-Object DomainName, ServerName, IPAddress, OperatingSystem, Forwarders, ScanvengingState, LastScavengeTime
+    }
+    $null = Get-Job | remove-Job    
+
+    Write-Log -logtext "Powershell jobs completed for $($DNSServers.count) DNS Server details in $DomainName" -logpath $logpath
 
     return $DNSServerDetails
 }
@@ -588,60 +627,91 @@ Function Get-ADDNSZoneDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
 
     $DNSServerZoneDetails = @()
+    $jobs = @()
+    $maxParallelJobs = 50
+    $scriptBlock1 = ${function:Write-log}    
+    
+    $initScript = [scriptblock]::Create(@"
+    function Write-log {$scriptBlock1}    
+"@)
+    
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
     $null = Get-Job | Remove-Job
     
     $DNSZones = Get-DnsServerZone -ComputerName $PDC | Where-Object { -Not $_.IsReverseLookupZone } | Select-Object DistinguishedName, ZoneName, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, MasterServers, SecureSecondaries, SecondaryServers
 
     ForEach ($DNSZone in $DNSZones) {
-        If ($DNSZone.DistinguishedName) {
-            try {
-                $Info = (Get-DnsServerZone -zoneName $DNSZone.ZoneName -ComputerName $PDC | Where-Object { -NOT $_.IsReverseLookupZone -AND $_.ZoneType -ne "Forwarder" }).Distinguishedname | ForEach-Object { Get-ADObject -Identity $_ -Server $PDC -Credential $Credential -Properties ProtectedFromAccidentalDeletion, Created }
-            }
-            catch {
-                $message = "Could not get DNS zone $($DNSZone.ZoneName) details from domain: $DomainName ."
-                New-BaloonNotification -title "Information" -message $message
-                Write-Log -logtext $message -logpath $logpath
+        while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
+            Start-Sleep -Milliseconds 50  # Wait for 0.05 seconds before checking again
+        }
 
+        $ScriptBlock = {
+            param ($DNSZone, $PDC, $DomainName, [pscredential]$Credential)
+
+            If ($DNSZone.DistinguishedName) {
+                try {
+                    $Info = (Get-DnsServerZone -zoneName $DNSZone.ZoneName -ComputerName $PDC | Where-Object { -NOT $_.IsReverseLookupZone -AND $_.ZoneType -ne "Forwarder" }).Distinguishedname | ForEach-Object { Get-ADObject -Identity $_ -Server $PDC -Credential $Credential -Properties ProtectedFromAccidentalDeletion, Created }
+                }
+                catch {
+                    $message = "Could not get DNS zone $($DNSZone.ZoneName) details from domain: $DomainName ."                    
+                    Write-Log -logtext $message -logpath $logpath
+
+                    $Info = [PSCustomObject]@{
+                        ProtectedFromAccidentalDeletion = $false
+                        Created                         = ""
+                    }
+                }
+                try {
+                    $Aging = Get-DnsServerZoneAging -ZoneName $DNSZone.ZoneName -ComputerName $PDC -ErrorAction SilentlyContinue
+                    $ScanvengingState = $Aging.AgingEnabled
+                    $RefreshInterval = $Aging.RefreshInterval
+                    $NoRefreshInterval = $Aging.NoRefreshInterval
+
+                }
+                catch {
+                    $ScanvengingState = "Unknown"
+                    $RefreshInterval = "Unknown"
+                    $NoRefreshInterval = "Unknown"
+                    Write-Log -logtext "DNS Zone $($DNSZone.ZoneName) aging info not completed from $PDC : $($_.Exception.Message)" -logpath $logpath            
+                }
+            }
+            Else {
                 $Info = [PSCustomObject]@{
                     ProtectedFromAccidentalDeletion = $false
                     Created                         = ""
                 }
             }
-            try {
-                $Aging = Get-DnsServerZoneAging -ZoneName $DNSZone.ZoneName -ComputerName $PDC -ErrorAction SilentlyContinue
-                $ScanvengingState = $Aging.AgingEnabled
-                $RefreshInterval = $Aging.RefreshInterval
-                $NoRefreshInterval = $Aging.NoRefreshInterval
 
-            }
-            catch {
-                $ScanvengingState = "Unknown"
-                $RefreshInterval = "Unknown"
-                $NoRefreshInterval = "Unknown"
-                Write-Log -logtext "DNS Zone $($DNSZone.ZoneName) aging info not completed from $PDC : $($_.Exception.Message)" -logpath $logpath            
-            }
+            $ZoneInfo = New-Object PSObject
+            $ZoneInfo = $DNSZone
+            Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name DNSServer -value $PDC
+            Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name ProtectedFromDeletion -value $Info.ProtectedFromAccidentalDeletion
+            Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name Created -value $Info.Created
+            Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name ScanvengingState -value $ScanvengingState
+            Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name RefreshInterval -value $RefreshInterval
+            Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name NoRefreshInterval -value $NoRefreshInterval            
+        
+            return $ZoneInfo
         }
-        Else {
-            $Info = [PSCustomObject]@{
-                ProtectedFromAccidentalDeletion = $false
-                Created                         = ""
-            }
-        }
-        $ZoneInfo = New-Object PSObject
-        $ZoneInfo = $DNSZone
-        Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name DNSServer -value $PDC
-        Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name ProtectedFromDeletion -value $Info.ProtectedFromAccidentalDeletion
-        Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name Created -value $Info.Created
-        Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name ScanvengingState -value $ScanvengingState
-        Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name RefreshInterval -value $RefreshInterval
-        Add-Member -inputObject $ZoneInfo -memberType NoteProperty -name NoRefreshInterval -value $NoRefreshInterval
-        $DNSServerZoneDetails += $ZoneInfo | Select-Object DNSServer, ZoneName, ProtectedFromDeletion, Created, ScanvengingState, RefreshInterval, NoRefreshInterval, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, @{l = "MasterServers"; e = { $_.MasterServers -join "`n" } } , SecureSecondaries, @{l = "SecondaryServers"; e = { $_.SecondaryServers -join "`n" } } 
+
+        $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $DNSZone, $PDC, $DomainName, $Credential -InitializationScript $initscript
     }
+
+    Write-Log -logtext "Powershell jobs submitted for looking into $($DNSZones.count) DNS Zones details in $DomainName" -logpath $logpath
+    
+    $null = $jobs | Wait-Job    
+    foreach ($job in $jobs) {
+        $DNSServerZoneDetails += Receive-Job -Job $job
+    }
+    $null = Get-Job | remove-Job
+
+    $DNSServerZoneDetails = $DNSServerZoneDetails | Select-Object DNSServer, ZoneName, ProtectedFromDeletion, Created, ScanvengingState, RefreshInterval, NoRefreshInterval, ZoneType, IsReadOnly, DynamicUpdate, IsSigned, IsWINSEnabled, ReplicationScope, @{l = "MasterServers"; e = { $_.MasterServers -join "`n" } } , SecureSecondaries, @{l = "SecondaryServers"; e = { $_.SecondaryServers -join "`n" } } 
+
+    Write-Log -logtext "Powershell jobs completed for $($DNSZones.count) DNS Zones details in $DomainName" -logpath $logpath    
 
     return $DNSServerZoneDetails
 }
