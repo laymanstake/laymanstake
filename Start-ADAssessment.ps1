@@ -2083,6 +2083,7 @@ function Get-UnusedNetlogonScripts {
     return $unusedScripts
 }
 
+# This function find all Mmanaged service accounts and also the potential service accounts basis special password settings
 function Get-PotentialSvcAccount {
     [CmdletBinding()]
     Param(
