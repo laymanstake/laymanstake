@@ -150,7 +150,7 @@ function Write-Log {
 function Get-DFSInventory { 
     param (
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
     
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
@@ -284,7 +284,7 @@ Function Get-ADTrustDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
     
     if ($Credential) {
@@ -343,7 +343,7 @@ Function Get-ADFSDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
     
     $maxParallelJobs = 50
@@ -494,7 +494,7 @@ Function Get-PKIDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$ForestName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
 
     $PKIDetails = New-Object psobject
@@ -739,7 +739,7 @@ Function Get-ADGroupMemberRecursive {
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$GroupName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
     
     $Domain = (Get-ADDomain -Identity $DomainName -Credential $Credential)
@@ -777,7 +777,7 @@ Function Get-AdminCountDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
     
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
@@ -820,7 +820,7 @@ Function Get-DHCPInventory {
     foreach ($dhcp in $DHCPs) {
         while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
             Start-Sleep -Milliseconds 50  # Wait for 0.05 seconds before checking again
-        }        
+        }
 
         $ScriptBlock = {
             param($dhcp, $logpath)
@@ -1081,7 +1081,7 @@ Function Get-EmptyOUDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
 
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
@@ -1105,7 +1105,7 @@ Function Get-ADObjectsToClean {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
 
     $ObjectsToClean = @()
@@ -1132,7 +1132,7 @@ Function Get-ADGPOSummary {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
     
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName ).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
@@ -1244,7 +1244,7 @@ Function Get-ADPasswordPolicy {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
 
     $PDC = (Get-ADDomain -Identity $DomainName -Credential $Credential -Server $DomainName).PDCEmulator
@@ -1270,7 +1270,7 @@ Function Get-FineGrainedPasswordPolicy {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
 
     $FGPwdPolicyDetails = @()
@@ -1314,7 +1314,7 @@ function Get-SMBv1Status {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$computername,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
 
     $result = @()
@@ -1617,7 +1617,7 @@ Function Get-ADSiteDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
 
     $SiteDetails = @()
@@ -1698,7 +1698,7 @@ Function Get-PrivGroupDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential        
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential        
     )
 
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
@@ -1734,7 +1734,7 @@ Function Get-ADGroupDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential 
     )
 
     $GroupDetails = @()    
@@ -1782,7 +1782,7 @@ Function Get-ADUserDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential 
     )
 
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
@@ -1811,7 +1811,7 @@ Function Get-BuiltInUserDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential 
     )
 
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
@@ -1846,7 +1846,7 @@ Function Get-OrphanedFSP {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential 
     )
 
     $orphanedFSPs = @()
@@ -1884,7 +1884,7 @@ Function Get-DomainServerDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential 
     )
 
     $DomainServerDetails = @()
@@ -1912,7 +1912,7 @@ Function Get-DomainClientDetails {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential 
     )
 
     $DomainClientDetails = @()
@@ -1943,7 +1943,7 @@ Function Start-SecurityCheck {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential 
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential 
     )
 
     $SecuritySettings = @()
@@ -2158,7 +2158,7 @@ function Get-UnusedNetlogonScripts {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, Mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, Mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
 
     $unusedScripts = @()
@@ -2217,7 +2217,7 @@ function Get-PotentialSvcAccount {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, Mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, Mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
 
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
@@ -2241,7 +2241,7 @@ function Get-SysvolNetlogonPermissions {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, Mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, Mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
 
     $SYSVOLPermsummary = @()
@@ -2325,7 +2325,7 @@ Function Get-SystemInfo {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, Mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, Mandatory = $false)][pscredential]$Credential,
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential,
         [Parameter(ValueFromPipeline = $true, Mandatory = $true)]$Servers
     )
 
@@ -2336,123 +2336,153 @@ Function Get-SystemInfo {
 
     #Run the commands for each server in the list
     $infoObject = @()
+    $jobs = @()
+    $maxParallelJobs = 50
+
+    $scriptBlock1 = ${function:Write-log}
+    $scriptBlock2 = ${function:New-BaloonNotification}
     
-    Foreach ($s in $servers) {   
-        $ErrorActionPreference = "Continue" 
-        if ((Test-Connection -ComputerName $s.name -count 2 -Quiet) -AND (Test-WSMan -ComputerName $s.Name -ErrorAction SilentlyContinue)) {
-            try {
-                $CPUInfo = Get-CimInstance Win32_Processor -ComputerName $s.Name
-                $processor = $CPUInfo.Name -join ","
-                $PhysicalCores = $CPUInfo.NumberOfCores -join ","
-                $Logicalcores = $CPUInfo.NumberOfLogicalProcessors -join ","
-            }
-            catch {
-                $processor = ""
-                $PhysicalCores = ""
-                $Logicalcores = ""
-            }
-            
-            try {
-                $PhysicalMemory = Get-CimInstance CIM_PhysicalMemory -ComputerName $s.Name | Measure-Object -Property capacity -Sum | ForEach-Object { [Math]::Round(($_.sum / 1GB), 2) }
-            }
-            Catch { $PhysicalMemory = "" }
-            
-            try {
-                $NetworkInfo = Get-CimInstance Win32_networkadapter -ComputerName $s.Name | Where-Object { $_.MACAddress -AND $_.PhysicalAdapter -eq $true }
-                $NIC_Count = ($NetworkInfo | Measure-object).Count
-                $NIC_Name = ($NetworkInfo.NetConnectionID -join ",")
-                $NIC_MAC = ($NetworkInfo.MACAddress -join ",")
-                $NICSpeed = (($NetworkInfo.Speed | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -Join " Gbps,") + " Gbps"
-            }
-            catch { 
-                $NIC_Count = ""
-                $NIC_Name = ""
-                $NIC_MAC = ""
-                $NICSpeed = ""
-            }
-            try {
-                $DiskInfo = Get-CimInstance Win32_LogicalDisk -ComputerName $s.Name
-                $DiskSizes = (($DiskInfo.size | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
-                $DiskFreeSizes = (($DiskInfo.FreeSpace | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
-                $DriveLetter = $DiskInfo.DeviceID -join ","
-            }
-            catch {
-                $DiskSizes = ""
-                $DiskFreeSizes = ""
-                $DriveLetter = ""
-            }
+    $initScript = [scriptblock]::Create(@"
+    function Write-log {$scriptBlock1}
+    function New-BaloonNotification {$scriptBlock2}
+"@)
 
-            try {
-                $SerialNumber = (Get-CimInstance Win32_BIOs -ComputerName $s.Name).SerialNumber
-            }
-            catch {
-                $SerialNumber = ""
-            }
-            
-            try {
-                $MakeInfo = Get-CimInstance Win32_ComputerSystem -ComputerName $s.Name
-                $Manufacturer = $MakeInfo.Manufacturer
-                $Model = $MakeInfo.Model
-            }
-            catch {
-                $Manufacturer = ""
-                $Model = ""
-            }
-
-            try {
-                $dnsSettings = Get-WmiObject -Class Win32_NetworkAdapterConfiguration -ComputerName $s.Name -Filter 'IPEnabled=true'
-                $DNSDetails = $dnsSettings.DNSServerSearchOrder
-            }
-            catch {
-                $DNSDetails = $null
-            }
-
-            $infoObject += [PSCustomObject]@{
-                Name            = $s.Name
-                IPAddress       = $s.IPV4Address
-                DNSDetails      = $DNSDetails -join "`n"
-                SerialNumber    = $SerialNumber
-                Manufacturer    = $Manufacturer
-                Model           = $Model
-                OperatingSystem = $s.OperatingSystem
-                Processor       = $Processor
-                PhysicalCores   = $PhysicalCores
-                Logicalcores    = $Logicalcores
-                PhysicalMemory  = $PhysicalMemory
-                NIC_Count       = $NIC_Count
-                NIC_Name        = $NIC_Name
-                NIC_MAC         = $NIC_MAC
-                NIC_Speed       = $NICSpeed
-                DriveLetter     = $DriveLetter
-                DriveSize       = $DiskSizes
-                DriveFreeSpace  = $DiskFreeSizes
-            }        
+    Foreach ($s in $servers) {  
+        while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
+            Start-Sleep -Milliseconds 50  # Wait for 0.05 seconds before checking again
         }
-        else {
-            $infoObject += [PSCustomObject]@{
-                Name            = $s.Name
-                IPAddress       = $s.IPV4Address
-                DNSDetails      = ""
-                SerialNumber    = ""
-                Manufacturer    = ""
-                Model           = ""
-                OperatingSystem = $s.OperatingSystem
-                Processor       = ""
-                PhysicalCores   = ""
-                Logicalcores    = ""
-                PhysicalMemory  = ""
-                NIC_Count       = ""
-                NIC_Name        = ""
-                NIC_MAC         = ""
-                NIC_Speed       = ""
-                DriveLetter     = ""
-                DriveSize       = ""
-                DriveFreeSpace  = ""
+        
+        $ScriptBlock = {
+            param ($s, $DomainName )
+
+            $infoObject = @()
+
+            if ((Test-Connection -ComputerName $s.name -count 2 -Quiet -ErrorAction SilentlyContinue) -AND (Test-WSMan -ComputerName $s.Name -ErrorAction SilentlyContinue)) {
+                try {
+                    $CPUInfo = Get-CimInstance Win32_Processor -ComputerName $s.Name
+                    $processor = $CPUInfo.Name -join ","
+                    $PhysicalCores = $CPUInfo.NumberOfCores -join ","
+                    $Logicalcores = $CPUInfo.NumberOfLogicalProcessors -join ","
+                }
+                catch {
+                    $processor = ""
+                    $PhysicalCores = ""
+                    $Logicalcores = ""
+                }
+            
+                try {
+                    $PhysicalMemory = Get-CimInstance CIM_PhysicalMemory -ComputerName $s.Name | Measure-Object -Property capacity -Sum | ForEach-Object { [Math]::Round(($_.sum / 1GB), 2) }
+                }
+                Catch { $PhysicalMemory = "" }
+            
+                try {
+                    $NetworkInfo = Get-CimInstance Win32_networkadapter -ComputerName $s.Name | Where-Object { $_.MACAddress -AND $_.PhysicalAdapter -eq $true }
+                    $NIC_Count = ($NetworkInfo | Measure-object).Count
+                    $NIC_Name = ($NetworkInfo.NetConnectionID -join ",")
+                    $NIC_MAC = ($NetworkInfo.MACAddress -join ",")
+                    $NICSpeed = (($NetworkInfo.Speed | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -Join " Gbps,") + " Gbps"
+                }
+                catch { 
+                    $NIC_Count = ""
+                    $NIC_Name = ""
+                    $NIC_MAC = ""
+                    $NICSpeed = ""
+                }
+                try {
+                    $DiskInfo = Get-CimInstance Win32_LogicalDisk -ComputerName $s.Name
+                    $DiskSizes = (($DiskInfo.size | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
+                    $DiskFreeSizes = (($DiskInfo.FreeSpace | ForEach-Object { ([Math]::Round(($_ / 1GB), 2)) }) -join " GB,") + " GB"
+                    $DriveLetter = $DiskInfo.DeviceID -join ","
+                }
+                catch {
+                    $DiskSizes = ""
+                    $DiskFreeSizes = ""
+                    $DriveLetter = ""
+                }
+
+                try {
+                    $SerialNumber = (Get-CimInstance Win32_BIOs -ComputerName $s.Name).SerialNumber
+                }
+                catch {
+                    $SerialNumber = ""
+                }
+            
+                try {
+                    $MakeInfo = Get-CimInstance Win32_ComputerSystem -ComputerName $s.Name
+                    $Manufacturer = $MakeInfo.Manufacturer
+                    $Model = $MakeInfo.Model
+                }
+                catch {
+                    $Manufacturer = ""
+                    $Model = ""
+                }
+
+                try {
+                    $dnsSettings = Get-WmiObject -Class Win32_NetworkAdapterConfiguration -ComputerName $s.Name -Filter 'IPEnabled=true'
+                    $DNSDetails = $dnsSettings.DNSServerSearchOrder
+                }
+                catch {
+                    $DNSDetails = $null
+                }
+
+                $infoObject += [PSCustomObject]@{
+                    Name            = $s.Name
+                    IPAddress       = $s.IPV4Address
+                    DNSDetails      = $DNSDetails -join "`n"
+                    SerialNumber    = $SerialNumber
+                    Manufacturer    = $Manufacturer
+                    Model           = $Model
+                    OperatingSystem = $s.OperatingSystem
+                    Processor       = $Processor
+                    PhysicalCores   = $PhysicalCores
+                    Logicalcores    = $Logicalcores
+                    PhysicalMemory  = $PhysicalMemory
+                    NIC_Count       = $NIC_Count
+                    NIC_Name        = $NIC_Name
+                    NIC_MAC         = $NIC_MAC
+                    NIC_Speed       = $NICSpeed
+                    DriveLetter     = $DriveLetter
+                    DriveSize       = $DiskSizes
+                    DriveFreeSpace  = $DiskFreeSizes
+                }        
             }
+            else {
+                $infoObject += [PSCustomObject]@{
+                    Name            = $s.Name
+                    IPAddress       = $s.IPV4Address
+                    DNSDetails      = ""
+                    SerialNumber    = ""
+                    Manufacturer    = ""
+                    Model           = ""
+                    OperatingSystem = $s.OperatingSystem
+                    Processor       = ""
+                    PhysicalCores   = ""
+                    Logicalcores    = ""
+                    PhysicalMemory  = ""
+                    NIC_Count       = ""
+                    NIC_Name        = ""
+                    NIC_MAC         = ""
+                    NIC_Speed       = ""
+                    DriveLetter     = ""
+                    DriveSize       = ""
+                    DriveFreeSpace  = ""
+                }
+            }
+
+            return $infoObject
+            
+            $message = "Working over domain: $DomainName Domain Controller $($s.Name) inventory details."
+            New-BaloonNotification -title "Information" -message $message
+            Write-Log -logtext $message -logpath $logpath
         }
-        $message = "Working over domain: $DomainName Domain Controller $($s.Name) inventory details."
-        New-BaloonNotification -title "Information" -message $message
-        Write-Log -logtext $message -logpath $logpath
+
+        $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $s, $DomainName -InitializationScript $initscript
+    }
+
+    $output = $Jobs | Wait-Job | Receive-Job
+
+    foreach ($result in $output) {
+        $infoObject += $result | Select-Object Name, IPAddress, DNSDetails, SerialNumber, Manufacturer, Model, OperatingSystem, Processor, PhysicalCores, Logicalcores, PhysicalMemory, NIC_Count, NIC_Name, NIC_MAC, NIC_Speed, DriveLetter, DriveSize, DriveFreeSpace
     }
 
     Return $infoObject
@@ -2469,7 +2499,7 @@ function New-Email {
         [parameter(mandatory = $true)]$Body,
         [parameter(mandatory = $false)]$SMTPServerPort = "25",		
         [parameter(mandatory = $false)]$RecipientAddressCc,
-        [parameter(mandatory = $false)][pscredential]$credential
+        [parameter(mandatory = $true)][pscredential]$Credential
 
     )
 
@@ -2546,12 +2576,8 @@ function New-BaloonNotification {
 function Test-ADHealth {
     [CmdletBinding()]
     Param(
-        [Parameter(ValueFromPipeline = $true, mandatory = $true)]
-        $DomainName,
-
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)]
-        [pscredential]
-        $Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     )
 
     $Report = @()
@@ -2577,33 +2603,35 @@ function Test-ADHealth {
             if (Test-Connection -ComputerName $DC -Count 2 -Quiet) {
                 $Result.Ping = "OK"
 
+                $output = Get-Service -Name DNS, NTDS, Netlogon -ComputerName $DC -ErrorAction SilentlyContinue | Select-Object Name, Status
+
                 # Netlogon Service Status
-                $DcNetlogon = Get-Service -ComputerName $DC -Name "Netlogon" -ErrorAction SilentlyContinue
-                if ($DcNetlogon.Status -eq "Running") {
+                $netlogonstatus = ($output | Where-Object { $_.Name -eq "Netlogon" } | Select-object Status).Status
+                if ($netlogonstatus -eq "Running") {
                     $Result.Netlogon = "OK"
                 }
                 else {
-                    $Result.Netlogon = $DcNetlogon.Status
+                    $Result.Netlogon = $netlogonstatus
                 }
 
                 # NTDS Service Status
-                $dcntds = Get-Service -ComputerName $DC -Name "NTDS" -ErrorAction SilentlyContinue
-                if ($dcntds.Status -eq "Running") {
+                $NTDSstatus = ($output | Where-Object { $_.Name -eq "NTDS" } | Select-object Status).Status
+                if ($NTDSstatus -eq "Running") {
                     $Result.NTDS = "OK"
                 }
                 else {
-                    $Result.NTDS = $dcntds.Status
+                    $Result.NTDS = $NTDSstatus
                 }
 
-                # DNS Service Status
-                $dcdns = Get-Service -ComputerName $DC -Name "DNS" -ErrorAction SilentlyContinue
-                if ($dcdns.Status -eq "Running") {
+                # DNS Service Status                
+                $DNSstatus = ($output | Where-Object { $_.Name -eq "DNS" } | Select-object Status).Status
+                if ($DNSstatus -eq "Running") {
                     $Result.DNS = "OK"
                 }
                 else {
-                    $Result.DNS = $dcdns.Status
+                    $Result.DNS = $DNSstatus
                 }
-
+                
                 # Dcdiag netlogons "Checking now"
                 $dcdiagnetlogon = dcdiag /test:netlogons /s:$DC
                 if ($dcdiagnetlogon -match "passed test NetLogons") {
@@ -2692,7 +2720,7 @@ function Get-ADReplicationHealth {
     [CmdletBinding()]
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][pscredential]$Credential
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
     ) 
 
     $replicationData = @()    
