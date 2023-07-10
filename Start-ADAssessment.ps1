@@ -653,12 +653,12 @@ Function Get-ADDNSZoneDetails {
         $ScriptBlock = {
             param ($DNSZone, $PDC, $DomainName, [pscredential]$Credential, $logpath)
 
-            If ($DNSZone.DistinguishedName) {
+            If (($DNSZone.DistinguishedName) -AND $DNSZone.ZoneType -ne "Forwarder") {                
                 try {
-                    $Info = (Get-DnsServerZone -zoneName $DNSZone.ZoneName -ComputerName $PDC | Where-Object { -NOT $_.IsReverseLookupZone -AND $_.ZoneType -ne "Forwarder" }).Distinguishedname | ForEach-Object { Get-ADObject -Identity $_ -Server $PDC -Credential $Credential -Properties ProtectedFromAccidentalDeletion, Created }
+                    $Info = Get-ADObject -Identity $DNSZone.DistinguishedName -Server $PDC -Credential $Credential -Properties ProtectedFromAccidentalDeletion, Created 
                 }
                 catch {
-                    $message = "Could not get DNS zone $($DNSZone.ZoneName) details from domain: $DomainName ."                    
+                    $message = "Could not get DNS zone $($DNSZone.ZoneName) details from $PDC for domain: $DomainName : $($_.Exception.Message)."                    
                     Write-Log -logtext $message -logpath $logpath
 
                     $Info = [PSCustomObject]@{
@@ -666,6 +666,7 @@ Function Get-ADDNSZoneDetails {
                         Created                         = ""
                     }
                 }
+                
                 try {
                     $Aging = Get-DnsServerZoneAging -ZoneName $DNSZone.ZoneName -ComputerName $PDC -ErrorAction SilentlyContinue
                     $ScanvengingState = $Aging.AgingEnabled
@@ -685,6 +686,10 @@ Function Get-ADDNSZoneDetails {
                     ProtectedFromAccidentalDeletion = $false
                     Created                         = ""
                 }
+
+                $ScanvengingState = "Unknown"
+                $RefreshInterval = "Unknown"
+                $NoRefreshInterval = "Unknown"
             }
 
             $ZoneInfo = New-Object PSObject
