@@ -561,7 +561,7 @@ Function Get-ADDNSDetails {
         }
 
         $ScriptBlock = {
-            param ($DNSServer, $PDC, $DomainName, [pscredential]$Credential)
+            param ($DNSServer, $PDC, $DomainName, [pscredential]$Credential, $logpath)
 
             try {
                 $Scavenging = Get-DnsServerScavenging -ComputerName $DNSServer.Name -ErrorAction SilentlyContinue
@@ -606,7 +606,7 @@ Function Get-ADDNSDetails {
             return $Info
         }
 
-        $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $DNSServer, $PDC, $DomainName, $Credential -InitializationScript $initscript
+        $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $DNSServer, $PDC, $DomainName, $Credential, $logpath -InitializationScript $initscript
     }
 
     Write-Log -logtext "Powershell jobs submitted for looking into $($DNSServers.count) DNS Server details in $DomainName" -logpath $logpath
@@ -650,7 +650,7 @@ Function Get-ADDNSZoneDetails {
         }
 
         $ScriptBlock = {
-            param ($DNSZone, $PDC, $DomainName, [pscredential]$Credential)
+            param ($DNSZone, $PDC, $DomainName, [pscredential]$Credential, $logpath)
 
             If ($DNSZone.DistinguishedName) {
                 try {
@@ -698,7 +698,7 @@ Function Get-ADDNSZoneDetails {
             return $ZoneInfo
         }
 
-        $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $DNSZone, $PDC, $DomainName, $Credential -InitializationScript $initscript
+        $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $DNSZone, $PDC, $DomainName, $Credential, $logpath -InitializationScript $initscript
     }
 
     Write-Log -logtext "Powershell jobs submitted for looking into $($DNSZones.count) DNS Zones details in $DomainName" -logpath $logpath
