@@ -587,7 +587,7 @@ Function Get-ADDNSDetails {
             }
 
             try {
-                $OS = (Get-ADComputer $DNSServer.Name -Properties OperatingSystem -Server $PDC -Credential $Credential).OperatingSystem
+                $OS = (Get-ADComputer $DNSServer.Name.split(".")[0] -Properties OperatingSystem -Server $PDC -Credential $Credential).OperatingSystem
             }
             catch {
                 $OS = "Access denied"
@@ -656,6 +656,8 @@ Function Get-ADDNSZoneDetails {
             If (($DNSZone.DistinguishedName) -AND $DNSZone.ZoneType -ne "Forwarder") {                
                 try {
                     $Info = Get-ADObject -Identity $DNSZone.DistinguishedName -Server $PDC -Credential $Credential -Properties ProtectedFromAccidentalDeletion, Created 
+                    $message = "Working on DNS zone $($DNSZone.ZoneName) details from $PDC for domain: $DomainName."                    
+                    Write-Log -logtext $message -logpath $logpath
                 }
                 catch {
                     $message = "Could not get DNS zone $($DNSZone.ZoneName) details from $PDC for domain: $DomainName : $($_.Exception.Message)."                    
@@ -1460,74 +1462,79 @@ Function Get-ADDomainDetails {
                 }
                 catch {
                     Write-Log -logtext "Failed to open remote registry on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                    $remotereg = $null
                     $results = ("Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found", "Reg not found")
                 }
-                try {
-                    $NLParameters = (($remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\')).GetValueNames() | ForEach-Object { [PSCustomObject]@{ Parameter = $_; Value = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\').GetValue($_) } } | ForEach-Object { "$($_.parameter), $($_.value)" }) -join "`n"
-                }
-                catch { 
-                    $NLParameters = "Reg not found" 
-                    Write-Log -logtext "Netlogon parameters not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $SSL2Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
-                }
-                catch { 
-                    $SSL2Client = "Reg not found" 
-                    Write-Log -logtext "SSL 2.0 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $SSL2Server = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Server').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
-                }
-                catch { 
-                    $SSL2Server = "Reg not found" 
-                    Write-Log -logtext "SSL 2.0 Server reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $TLS10Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
-                }
-                catch { 
-                    $TLS10Client = "Reg not found" 
-                    Write-Log -logtext "TLS 1.0 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $TLS10Server = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
-                }
-                catch { 
-                    $TLS10Server = "Reg not found" 
-                    Write-Log -logtext "TLS 1.0 Server reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $TLS11Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
-                }
-                catch { 
-                    $TLS11Client = "Reg not found" 
-                    Write-Log -logtext "TLS 1.1 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $TLS11Server = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
-                }
-                catch { 
-                    $TLS11Server = "Reg not found"
-                    Write-Log -logtext "TLS 1.1 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $NTPServer = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters').GetValue('NTPServer')
-                }
-                catch { 
-                    $NTPServer = "Reg not found" 
-                    Write-Log -logtext "NTP Server reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
-                }
-                try {
-                    $NTPType = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters').GetValue('Type')
-                }
-                catch { 
-                    $NTPType = "Reg not found" 
-                    Write-Log -logtext "NTP Server Type reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+
+                if ($remotereg) {
+                    try {
+                        $NLParameters = (($remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\')).GetValueNames() | ForEach-Object { [PSCustomObject]@{ Parameter = $_; Value = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\Netlogon\Parameters\').GetValue($_) } } | ForEach-Object { "$($_.parameter), $($_.value)" }) -join "`n"
+                    }
+                    catch { 
+                        $NLParameters = "Reg not found" 
+                        Write-Log -logtext "Netlogon parameters not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                    }
+                    try {
+                        $SSL2Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+                    }
+                    catch { 
+                        $SSL2Client = "Reg not found" 
+                        Write-Log -logtext "SSL 2.0 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                    }
+                    try {
+                        $SSL2Server = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Server').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+                    }
+                    catch { 
+                        $SSL2Server = "Reg not found" 
+                        Write-Log -logtext "SSL 2.0 Server reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                    }
+                    try {
+                        $TLS10Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+                    }
+                    catch { 
+                        $TLS10Client = "Reg not found" 
+                        Write-Log -logtext "TLS 1.0 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                    }
+                    try {
+                        $TLS10Server = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+                    }
+                    catch { 
+                        $TLS10Server = "Reg not found" 
+                        Write-Log -logtext "TLS 1.0 Server reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                    }
+                    try {
+                        $TLS11Client = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+                    }
+                    catch { 
+                        $TLS11Client = "Reg not found" 
+                        Write-Log -logtext "TLS 1.1 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                    }
+                    try {
+                        $TLS11Server = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server').GetValue('Enabled') -eq 1 -AND $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0\Client').GetValue('DisabledByDefault') -eq 0
+                    }
+                    catch { 
+                        $TLS11Server = "Reg not found"
+                        Write-Log -logtext "TLS 1.1 Client reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                    }
+                    try {
+                        $NTPServer = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters').GetValue('NTPServer')
+                    }
+                    catch { 
+                        $NTPServer = "Reg not found" 
+                        Write-Log -logtext "NTP Server reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                    }
+                    try {
+                        $NTPType = $remotereg.OpenSubKey('SYSTEM\CurrentControlSet\Services\W32Time\Parameters').GetValue('Type')
+                    }
+                    catch { 
+                        $NTPType = "Reg not found" 
+                        Write-Log -logtext "NTP Server Type reg key not found on domain controller $($dc.Hostname) : $($_.Exception.Message)" -logpath $logpath
+                    }
+
+                    $null = $remotereg.Close()
                 }
 
-                $Results = ($NLParameters, $SSL2Client, $SSL2Server, $TLS10Client, $TLS10Server, $TLS11Client, $TLS11Server, $NTPServer, $NTPType)
-                $null = $remotereg.Close()
+                $Results = ($NLParameters, $SSL2Client, $SSL2Server, $TLS10Client, $TLS10Server, $TLS11Client, $TLS11Server, $NTPServer, $NTPType)                
 
                 try {
                     $InstalledFeatures = ((Get-WindowsFeature -ComputerName $dc.Hostname) | Where-Object { $_.Installed -eq 'True' }).Name
@@ -1593,7 +1600,7 @@ Function Get-ADDomainDetails {
     $DomainDetails = $DomainDetails | Sort-Object -Property Domain, DCName | Select-Object Domain, DomainFunctionLevel, PossibleDomainFunctionLevel, DCName, Site, OSVersion, IPAddress, GlobalCatalog, FSMORoles, Sysvol, FSR2DFSR, LAPS, NTPServer, NTPType, SMBv1Client, SMBv1Server, ADWSStatus, SSL2Client, SSL2Server, TLS1Client, TLS1Server, TLS11Client, TLS11Server, Firewall, NetlogonParameter, ReadOnly, UndesiredFeatures
 
     # Return the domain details
-    $DomainDetails
+    return $DomainDetails
 }
 
 # This function provides detailed information about Active Directory sites, including site names, subnet assignments, and site links.
