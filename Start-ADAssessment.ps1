@@ -475,6 +475,15 @@ Function Get-ADFSDetails {
 
             $AADCServerDetails += $Info
         }
+        else {
+            $Info = [PSCustomObject]@{
+                ServerName      = $server
+                OperatingSystem = (Get-ADComputer $server -server $PDC -Credential $Credential -properties OperatingSystem).OperatingSystem            
+                ADSyncVersion   = $ADSyncVersion
+                Connection      = $ConnectorName
+                IsActive        = (Get-Service -ComputerName $Server -Name ADSync -ErrorAction SilentlyContinue).Status -eq "Running"
+            }
+        }
     }
     
     return $AADCServerDetails, $ADFSServerDetails 
@@ -823,6 +832,10 @@ Function Get-DHCPInventory {
             if ((Test-Connection -ComputerName $dhcp.DNSName -count 2 -Quiet ) -AND (Get-Service -Name DHCPServer -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue).Status -eq "Running") {                 
                 $scopes = $null
                 $scopes = (Get-DhcpServerv4Scope -ComputerName $dhcp.DNSName -ErrorAction SilentlyContinue)
+
+                $message = "Working over DHCP Server $($dhcp.DNSName) related details."
+                New-BaloonNotification -title "Information" -message $message
+                Write-Log -logtext $message -logpath $logpath
                 
                 try {
                     $OS = (Get-WmiObject win32_operatingSystem -ComputerName $dhcp.DNSName -Property Caption -ErrorAction SilentlyContinue).Caption                
@@ -1029,11 +1042,7 @@ Function Get-DHCPInventory {
                 }
 
                 $Report += $ScopeDetail | Select-Object DHCPName, DHCPAddress, ScopeName, Description, ScopeID, SubnetMask, StartRange, Endrange, LeaseDuration, State, Gateway, ScopeOption15, Exclusions, DOGroupID, Option160, GlobalOption15, ScopeDNS1, ScopeDNS2, ScopeDNS3, GlobalDNS1, GlobalDNS2, GlobalDNS3
-            }
-
-            $message = "Working over DHCP Server $($dhcp.DNSName) related details."
-            New-BaloonNotification -title "Information" -message $message
-            Write-Log -logtext $message -logpath $logpath
+            }            
 
             $Output = [PSCustomObject]@{
                 Report      = $Report
