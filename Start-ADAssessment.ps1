@@ -549,8 +549,8 @@ Function Get-ADDNSDetails {
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).Hostname -count 2 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
     $null = Get-Job | Remove-Job    
     
-    try {
-        $DNSServers = (Get-ADDomainController -Filter * -server $PDC -Credential $Credential) | Where-Object { Get-WmiObject -Class Win32_serverfeature -ComputerName $_.Name -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "DNS Server" } } | Select-Object Name, IPv4Address
+    try {        
+        $DNSServers = Resolve-DnsName -Name $DomainName -Type NS -Server $PDC | Where-Object { $_.Type -eq "NS" } | Select-Object @{l = "Name"; e = { $_.Server } }, @{l = "IPv4Address"; e = { (Resolve-DnsName -Name $_.Server -Server $PDC).IPAddress } }
     }
     catch {
         Write-Log -logtext "Failed to get DNS servers list as one or more DC denied service details access : $($_.Exception.Message)" -logpath $logpath
