@@ -198,12 +198,14 @@ function Get-DFSInventory {
                             $ServerName = $ServerName + "." + $DomainName
                         }
                         
-                        try {
-                            $Path = Get-WmiObject Win32_Share -filter "Name LIKE '$Sharename'" -ComputerName $ServerName -ErrorAction SilentlyContinue
+                        if (Test-Connection -ComputerName $ServerName -count 1 -Quiet ) {
+                            try {
+                                $Path = Get-WmiObject Win32_Share -filter "Name LIKE '$Sharename'" -ComputerName $ServerName -ErrorAction SilentlyContinue
+                            }
+                            catch {
+                                Write-Output $_.Exception.Message
+                            }
                         }
-                        catch {
-                            Write-Output $_.Exception.Message
-                        }                    
 
                         if ($Path) { 
                             "$($ServerName)::$($Path.Path)"
@@ -387,7 +389,9 @@ Function Get-ADFSDetails {
             Return $adfs, $aad
         }
 
-        $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $_.Name
+        if (Test-Connection -ComputerName $_.Name -count 2 -Quiet ) {
+            $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $_.Name
+        }
     }
 
     $null = Wait-Job -Job $jobs
