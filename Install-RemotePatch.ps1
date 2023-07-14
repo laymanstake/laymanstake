@@ -328,7 +328,7 @@ Function Start-Patch {
     New-BaloonNotification -title "Information" -message $message
     Write-Log -logtext $message -logpath $logpath
 
-    $Initial = "Not logs yet"
+    $Initial = "No logs yet"
     $count = 0
     $StartTime = Get-Date
 
