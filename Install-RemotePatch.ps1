@@ -388,7 +388,7 @@ Function Start-Patch {
     New-BaloonNotification -title "Information" -message $message
     Write-Log -logtext $message -logpath $logpath
 
-    $Patches = Invoke-command -ComputerName $ServerName -ScriptBlock { Get-WmiObject -Class "win32_quickfixengineering" | Select-Object -Property "Description", "HotfixID", @{Name = "InstalledOn"; Expression = { ([DateTime]($_.InstalledOn)).ToLocalTime() } } | ? { $_.InstalledOn -ge (Get-Date).AddDays(-1) } }    
+    $Patches = Invoke-command -ComputerName $ServerName -ScriptBlock { Get-WmiObject -Class "win32_quickfixengineering" | Select-Object -Property "Description", "HotfixID", @{Name = "InstalledOn"; Expression = { ([DateTime]($_.InstalledOn)).ToLocalTime() } } | Where-Object { $_.InstalledOn -ge (Get-Date).AddDays(-1) } }
 
     $message = "Removing script file and schedule task from $($serverName)."
     New-BaloonNotification -title "Information" -message $message
