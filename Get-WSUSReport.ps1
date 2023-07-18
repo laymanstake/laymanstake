@@ -115,24 +115,14 @@ function Get-WSUSReport {
             $WSUS = $null
 
             try {
-                [void][reflection.assembly]::LoadWithPartialName("Microsoft.UpdateServices.Administration")
-            }
-            catch {        
-                $message = "Local machine doesn't seem to have WSUS related modules. Can not continue."
-                New-BaloonNotification -title "Error" -message $message -icon "Error"
-                Write-Log -logtext $message -logpath $logfile
-                Exit
-            }
-
-            try {
                 Try {
-                    # Try with port 8530 first
-                    $WSUS = [Microsoft.UpdateServices.Administration.AdminProxy]::getUpdateServer($WS1, $false, 8530)
+                    # Try with port 8530 first                    
+                    $WSUS = Get-WSUSServer -Name $WS1 -PortNumber 8530
                 }
                 Catch {                
                     try {
-                        # If port 8530 doesn't work then try with port 80
-                        $WSUS = [Microsoft.UpdateServices.Administration.AdminProxy]::getUpdateServer($WS1, $false, 80)
+                        # If port 8530 doesn't work then try with port 80                        
+                        $WSUS = Get-WSUSServer -Name $WS1 -PortNumber 80
                     }
                     catch {
                         $message = "Unable to connect to $($WS1) over port 8530 or 80. Need to update the code for any other ports. Can not continue."
@@ -171,17 +161,16 @@ function Get-WSUSReport {
 
                         $SubScript = {
                             param ($object, $MemberOfGroup, $WS, $report, $logFile)
-                            $WSUSClientStatus = @()
+                            $WSUSClientStatus = @()                            
                             
-                            [void][reflection.assembly]::LoadWithPartialName("Microsoft.UpdateServices.Administration")
                             Try {
-                                # Try with port 8530 first
-                                $WSUS = [Microsoft.UpdateServices.Administration.AdminProxy]::getUpdateServer($WS, $false, 8530)
+                                # Try with port 8530 first                                
+                                $WSUS = Get-WSUSServer -Name $WS -PortNumber 8530
                             }
                             Catch {                
                                 try {
-                                    # If port 8530 doesn't work then try with port 80
-                                    $WSUS = [Microsoft.UpdateServices.Administration.AdminProxy]::getUpdateServer($WS, $false, 80)
+                                    # If port 8530 doesn't work then try with port 80                                    
+                                    $WSUS = Get-WSUSServer -Name $WS -PortNumber 80
                                 }
                                 catch {                                    
                                     Continue
@@ -233,7 +222,7 @@ function Get-WSUSReport {
                             $WSUSClientStatus
                         }
 
-                        $Subjobs += Start-Job -Name "WSUSClient_$($WS1)" -ScriptBlock $SubScript -ArgumentList $object, $MemberOfGroup, $WSUS.Name, $report, $logFile
+                        $Subjobs += Start-Job -Name "WSUSClient_$($Object.computertargetid)" -ScriptBlock $SubScript -ArgumentList $object, $MemberOfGroup, $WSUS.Name, $report, $logFile
                     }
 
                     $output = $SubJobs | Wait-Job | Receive-Job
