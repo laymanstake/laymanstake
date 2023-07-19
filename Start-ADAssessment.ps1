@@ -88,8 +88,9 @@ else {
     $DHCPFlag = $false
 }
 
-if (Get-Module -ListAvailable -Name DFSN) {    
+if ((Get-Module -ListAvailable -Name DFSN) -AND (Get-Module -ListAvailable -Name DFSR)) {    
     Import-Module DFSN
+    Import-Module DFSR
     $DFSFlag = $true
 }
 else {
