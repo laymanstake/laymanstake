@@ -64,8 +64,8 @@ Function New-BaloonNotification {
 
     $tip = New-Object System.Windows.Forms.NotifyIcon
 
-    $path = Get-Process -id $pid | Select-Object -ExpandProperty Path    
-    $tip.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path)
+    $path = Get-Process -Name powershell | Select-Object -ExpandProperty Path
+    $tip.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path[0])
     $tip.BalloonTipIcon = $Icon
     $tip.BalloonTipText = $message
     $tip.BalloonTipTitle = $title    
