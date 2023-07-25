@@ -2561,7 +2561,12 @@ function New-BaloonNotification {
 
 
     $path = Get-Process -Name powershell | Select-Object -ExpandProperty Path
-    $tip.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path[0])
+    if ($path) {
+        $tip.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path[0])
+    }
+    else {
+        $tip.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path)
+    }
     $tip.BalloonTipIcon = $Icon
     $tip.BalloonTipText = $message
     $tip.BalloonTipTitle = $title    
