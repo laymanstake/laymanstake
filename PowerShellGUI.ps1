@@ -82,20 +82,29 @@ function New-BaloonNotification {
 
     $tip = New-Object System.Windows.Forms.NotifyIcon
 
+
     $path = Get-Process -Name powershell | Select-Object -ExpandProperty Path
-    $tip.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path[0])
+    if ($path) {
+        $tip.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path[0])
+    }
+    else {
+        $tip.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path)
+    }
     $tip.BalloonTipIcon = $Icon
     $tip.BalloonTipText = $message
     $tip.BalloonTipTitle = $title    
     $tip.Visible = $true            
     
-    register-objectevent $tip BalloonTipClicked BalloonClicked_event -Action { $script.Invoke() } | Out-Null
-    $tip.ShowBalloonTip(50000) # Even if we set it for 1000 milliseconds, it usually follows OS minimum 10 seconds
-    Start-Sleep -s 10
+    try {
+        register-objectevent $tip BalloonTipClicked BalloonClicked_event -Action { $script.Invoke() } | Out-Null
+    }
+    catch {}
+    $tip.ShowBalloonTip(10000) # Even if we set it for 1000 milliseconds, it usually follows OS minimum 10 seconds
+    Start-Sleep -seconds 1
     
     $tip.Dispose() # Important to dispose otherwise the icon stays in notifications till reboot
     Get-EventSubscriber -SourceIdentifier "BalloonClicked_event"  -ErrorAction SilentlyContinue | Unregister-Event # In case if the Event Subscription is not disposed
-} 
+}
 
 # You can pass a script that what to do when someone clicks on ballon notification
 <# $script = {
