@@ -1968,13 +1968,14 @@ Function Start-SecurityCheck {
                     $remotereg.OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('NoLMHash'),
                     $remotereg.OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('RestrictAnonymous'),
                     $remotereg.OpenSubKey('System\CurrentControlSet\Services\NTDS\Parameters').GetValue('LDAPServerIntegrity'),
-                    $remotereg.OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').GetValue('InactivityTimeoutSecs')
+                    $remotereg.OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').GetValue('InactivityTimeoutSecs'),
+                    $remotereg.OpenSubKey('SOFTWARE\Microsoft\Windows\NetworkProvider\HardenedPaths').GetValueNames()
                 )                
                 $null = $remotereg.Close()                
             }
             catch {
                 Write-Log -logtext "Could not check for security related registry keys on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
-                $results = ("", "", "", "", "")
+                $results = ("", "", "", "", "", "")
             }
             if ($results) {
                 $NTLM = switch ($results[0]) {
@@ -2022,10 +2023,22 @@ Function Start-SecurityCheck {
                     }
                 }
 
-                $settings = ($NTLM, $LMHash, $RestrictAnnon, $LDAPIntegrity, $InactivityTimeout)
+                $SYSVOLHardened = switch (($results[5] -like "*SYSVOL*") -like "*") {
+                    $true { "True" }
+                    $false { "False" }
+                    Default { "False" }
+                }
+
+                $NetlogonHardened = switch (($results[5] -like "*Netlogon*") -like "*") {
+                    $true { "True" }
+                    $false { "False" }
+                    Default { "False" }
+                }
+
+                $settings = ($NTLM, $LMHash, $RestrictAnnon, $LDAPIntegrity, $InactivityTimeout, $SYSVOLHardened, $NetlogonHardened)
             }
             else {
-                $settings = ("Access denied", "Access denied", "Access denied", "Access denied", "Access denied")
+                $settings = ("Access denied", "Access denied", "Access denied", "Access denied", "Access denied", "Access denied", "Access denied")
                 Write-Log -logtext "Could not check for security related security settings on domain controller $dc as regisitry not accessible : $($_.exception.message)" -logpath $logpath
             }
 
@@ -2107,16 +2120,31 @@ Function Start-SecurityCheck {
                         catch {}
                         $DenyBatchLogonUsers -join "`n"
 
+                        $DenyInteractiveLogonSIDs = ((($seceditContent | Select-String "SeDenyInteractiveLogonRight") -split "=")[1] -replace "\*", "" -replace " ", "") -split ","
+                        
+                        try {
+                            
+                            $DenyInteractiveLogonUsers = $DenyInteractiveLogonSIDs | Where-Object { $_ -ne "" } | ForEach-Object { 
+                                if ($_ -like "S-1*") {
+                                    $SID = New-Object System.Security.Principal.SecurityIdentifier($_)
+                                    $User = $SID.Translate([System.Security.Principal.NTAccount])
+                                    $User.Value
+                                }
+                                else { $_ } }
+                        }
+                        catch {}
+                        $DenyInteractiveLogonUsers -join "`n"
+
                         $null = Remove-Item "$env:TEMP\secedit.cfg"
                     }
                 }
                 catch {
-                    $settings += ("Access denied", "Access denied", "Access denied", "Access denied", "Access denied")
+                    $settings += ("Access denied", "Access denied", "Access denied", "Access denied", "Access denied", "Access denied")
                     Write-Log -logtext "Could not check for secedit related security settings on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
                 }
             }
             else {
-                $settings += ("Access denied", "Access denied", "Access denied", "Access denied", "Access denied")
+                $settings += ("Access denied", "Access denied", "Access denied", "Access denied", "Access denied", "Access denied")
                 Write-Log -logtext "Could not check for security related security settings on domain controller $dc as PS remoting not available : $($_.exception.message)" -logpath $logpath
             }
 
@@ -2128,11 +2156,14 @@ Function Start-SecurityCheck {
                 "Network access: Allow anonymous SID/Name translation"                          = $settings[2]
                 "Domain controller: LDAP server signing requirements"                           = $settings[3]
                 "Interactive logon: Machine inactivity limit"                                   = $settings[4]
-                "Allow logon locally on domain controllers"                                     = $settings[5]
-                "Allow logon through Terminal Services on domain controllers"                   = $settings[6]
-                "Deny access to this computer from the network"                                 = $settings[7]
-                "Deny log on as a service"                                                      = $settings[8]
-                "Deny log on as a batch job"                                                    = $settings[9]
+                "UNC Path SYSVOL hardened?"                                                     = $settings[5]
+                "UNC Path NETLGON hardened?"                                                    = $settings[6]
+                "Allow logon locally on domain controllers"                                     = $settings[7]
+                "Allow logon through Terminal Services on domain controllers"                   = $settings[8]
+                "Deny access to this computer from the network"                                 = $settings[9]
+                "Deny log on as a service"                                                      = $settings[10]
+                "Deny log on as a batch job"                                                    = $settings[11]
+                "Deny Interactive logon"                                                        = $settings[12]
             }
         }
         else {
@@ -2144,11 +2175,14 @@ Function Start-SecurityCheck {
                 "Network access: Allow anonymous SID/Name translation"                          = "DC is down"
                 "Domain controller: LDAP server signing requirements"                           = "DC is down"
                 "Interactive logon: Machine inactivity limit"                                   = "DC is down"
+                "UNC Path SYSVOL hardened?"                                                     = "DC is down"
+                "UNC Path NETLGON hardened?"                                                    = "DC is down"
                 "Allow logon locally on domain controllers"                                     = "DC is down"
                 "Allow logon through Terminal Services on domain controllers"                   = "DC is down"
                 "Deny access to this computer from the network"                                 = "DC is down"
                 "Deny log on as a service"                                                      = "DC is down"
                 "Deny log on as a batch job"                                                    = "DC is down"
+                "Deny Interactive logon"                                                        = "DC is down"
             }
             Write-Log -logtext "Could not check for security related security settings on domain controller $dc as DC is down." -logpath $logpath
         }
