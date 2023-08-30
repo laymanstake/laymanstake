@@ -51,7 +51,7 @@ Function Write-Log {
     } until ( $isWritten )
 }
 
-Function New-BaloonNotification {
+function New-BaloonNotification {
     Param(
         [Parameter(ValueFromPipeline = $true, mandatory = $true)][String]$title,
         [Parameter(ValueFromPipeline = $true, mandatory = $true)][String]$message,        
@@ -64,8 +64,9 @@ Function New-BaloonNotification {
 
     $tip = New-Object System.Windows.Forms.NotifyIcon
 
-    $path = Get-Process -Name powershell | Select-Object -ExpandProperty Path
-    $tip.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path[0])
+
+    $path = Get-Process -id $pid | Select-Object -ExpandProperty Path
+    $tip.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path)
     $tip.BalloonTipIcon = $Icon
     $tip.BalloonTipText = $message
     $tip.BalloonTipTitle = $title    
@@ -76,7 +77,7 @@ Function New-BaloonNotification {
     }
     catch {}
     $tip.ShowBalloonTip(10000) # Even if we set it for 1000 milliseconds, it usually follows OS minimum 10 seconds
-    Start-Sleep -s 1
+    Start-Sleep -seconds 1
     
     $tip.Dispose() # Important to dispose otherwise the icon stays in notifications till reboot
     Get-EventSubscriber -SourceIdentifier "BalloonClicked_event"  -ErrorAction SilentlyContinue | Unregister-Event # In case if the Event Subscription is not disposed
