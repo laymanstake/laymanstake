@@ -1955,27 +1955,44 @@ Function Start-SecurityCheck {
 
     $SecuritySettings = @()
     $DCs = (Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential).hostname
-    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 1 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 1 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address    
+    $results = ("", "", "", "", "", "")
     $null = Get-Job | Remove-Job
 
     ForEach ($DC in $DCs) {
         if (Test-Connection -ComputerName $Dc -Count 4 -Quiet) {
             try {
                 $remotereg = ([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $DC))
-
-                $results = (
-                    $remotereg.OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('LmCompatibilityLevel'),
-                    $remotereg.OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('NoLMHash'),
-                    $remotereg.OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('RestrictAnonymous'),
-                    $remotereg.OpenSubKey('System\CurrentControlSet\Services\NTDS\Parameters').GetValue('LDAPServerIntegrity'),
-                    $remotereg.OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').GetValue('InactivityTimeoutSecs'),
-                    $remotereg.OpenSubKey('SOFTWARE\Microsoft\Windows\NetworkProvider\HardenedPaths').GetValueNames()
-                )                
+                
+                try {
+                    $results[0] = $remotereg.OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('LmCompatibilityLevel')
+                }
+                catch { $results[0] = "" }
+                try {
+                    $results[1] = $remotereg.OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('NoLMHash')
+                }
+                catch { $results[1] = "" }
+                try {
+                    $results[2] = $remotereg.OpenSubKey('System\CurrentControlSet\Control\Lsa').GetValue('RestrictAnonymous')
+                }
+                catch { $results[2] = "" }
+                try {
+                    $results[3] = $remotereg.OpenSubKey('System\CurrentControlSet\Services\NTDS\Parameters').GetValue('LDAPServerIntegrity')
+                }
+                catch { $results[3] = "" }
+                try {
+                    $results[4] = $remotereg.OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').GetValue('InactivityTimeoutSecs')
+                }
+                catch { $results[4] = "" }
+                try {
+                    $results[5] = $remotereg.OpenSubKey('SOFTWARE\Microsoft\Windows\NetworkProvider\HardenedPaths').GetValueNames()
+                }
+                catch { $results[5] = "" }
+                
                 $null = $remotereg.Close()                
             }
             catch {
-                Write-Log -logtext "Could not check for security related registry keys on domain controller $dc : $($_.Exception.Message)" -logpath $logpath
-                $results = ("", "", "", "", "", "")
+                Write-Log -logtext "Could not check for security related registry keys on domain controller $dc : $($_.Exception.Message)" -logpath $logpath                
             }
             if ($results) {
                 $NTLM = switch ($results[0]) {
@@ -2023,13 +2040,13 @@ Function Start-SecurityCheck {
                     }
                 }
 
-                $SYSVOLHardened = switch (($results[5] -like "*SYSVOL*") -like "*") {
+                $SYSVOLHardened = switch ($results[5] -like "*SYSVOL*") {
                     $true { "True" }
                     $false { "False" }
                     Default { "False" }
                 }
 
-                $NetlogonHardened = switch (($results[5] -like "*Netlogon*") -like "*") {
+                $NetlogonHardened = switch ($results[5] -like "*Netlogon*") {
                     $true { "True" }
                     $false { "False" }
                     Default { "False" }
