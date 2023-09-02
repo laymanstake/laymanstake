@@ -1213,7 +1213,7 @@ Function Get-GPOInventory {
     
     $GPOs | ForEach-Object {
         $GPO = $_
-        $Permissions = Get-GPPermission -Name $_.DisplayName -All -DomainName $DomainName -server $PDC | Select-Object @{l = "Permission"; e = { "$($_.Trustee.Name), $($_.Trustee.SIDType), $($_.permission), Denied: $($_.Denied)" } }    
+        $Permissions = Get-GPPermission -Name $_.DisplayName -All -DomainName $DomainName -server $PDC | Select-Object @{l = "Permission"; e = { "$($_.Trustee.Name), $($_.Trustee.SIDType), $($_.permission), Denied: $($_.Denied)" } }, @{l = "GPOApply"; e = { "$(($_ | Where-Object { $_.permission -eq "GpoApply" }).Trustee.Name)" } }
         $Links = ($LinkedGPOs | Where-Object { $_.DisplayName -eq $GPO.DisplayName }).Links
 
         if ($GPO.ID -in $RootGPOs) {
@@ -1236,6 +1236,7 @@ Function Get-GPOInventory {
             Link             = $Links -join "`n"
             ComputerSettings = $_.Computer.Enabled
             UserSettings     = $_.User.Enabled
+            GPOApply         = $Permissions.GPOApply -join "`n"
             Permissions      = $Permissions.Permission -join "`n"
             WmiFilter        = $_.WmiFilter.Name
             WmiQuery         = $wmiquery
