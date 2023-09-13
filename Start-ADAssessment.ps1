@@ -1911,6 +1911,7 @@ Function Get-DomainServerDetails {
             DomainName     = $DomainName
             OSName         = $OS.Name
             Count          = $OS.count
+            Disabled       = ($Servers | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.Enabled -eq $false }).Name.Count
             StaleCount_90d = ($Servers | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.PasswordLastSet -lt $Today.AddDays( - ($InactivePeriod)) }).Name.Count
         }        
     }
@@ -2231,15 +2232,15 @@ function Get-UnusedNetlogonScripts {
 
     $netlogonPath = "\\$DomainName\netlogon"
     try {
-        $scriptFiles = Get-ChildItem -Path $netlogonPath -File -Recurse | Split-Path -Leaf #| Select-Object -ExpandProperty FullName
+        $scriptFiles = Get-ChildItem -Path $netlogonPath -File -Recurse | Select-Object -ExpandProperty FullName
     }
     catch {
         Write-Log -logtext "Could not access Netlogon share to read script files : $($_.Exception.Message)" -logpath $logpath
     }
-    #$scriptFiles = $scriptfiles -replace $DomainName, $DomainName.Split(".")[0] | Where-Object { $_ -ne $null } | Sort-Object -Unique
-    
+    $scriptFiles = $scriptfiles -replace $DomainName, $DomainName.Split(".")[0] | Where-Object { $_ -ne $null } | Sort-Object -Unique | Where-Object { $_ } | ForEach-Object { $_.ToLower() } | Split-Path -Leaf
+
     $Filter = "(&(objectCategory=User)(objectClass=User)(scriptPath=*))"    
-    $referencedScripts = (Get-ADUser -LDAPFilter $Filter -Server $PDC -Credential $Credential -Properties ScriptPath | Select-Object ScriptPath -Unique).ScriptPath    
+    $referencedScripts = (Get-ADUser -LDAPFilter $Filter -Server $PDC -Credential $Credential -Properties ScriptPath | Select-Object ScriptPath -Unique).ScriptPath | Split-Path -Leaf
 
     if ($scriptFiles) {
         $gpos = Get-GPO -All -Domain $DomainName -Server $PDC
@@ -2249,14 +2250,14 @@ function Get-UnusedNetlogonScripts {
             
             $gpoXml = [xml]$gpoReport
 
-            $computerScripts = $gpoXml.GPO.Computer.ExtensionData.Extension.Script | Select-Object -ExpandProperty Command
-            $userScripts = $gpoXml.GPO.User.ExtensionData.Extension.Script | Select-Object -ExpandProperty Command
+            $computerScripts = $gpoXml.GPO.Computer.ExtensionData.Extension.Script | Select-Object -ExpandProperty Command | Split-Path -Leaf
+            $userScripts = $gpoXml.GPO.User.ExtensionData.Extension.Script | Select-Object -ExpandProperty Command | Split-Path -Leaf
 
             $referencedScripts += $computerScripts, $userScripts
         }
         
-        $referencedScripts = $referencedScripts | Split-Path -Leaf #-replace $DomainName, $DomainName.Split(".")[0] | Where-Object { $_ -ne $null } | Sort-Object -Unique
-
+        $referencedScripts = $referencedScripts -replace $DomainName, $DomainName.Split(".")[0] | Where-Object { $_ -ne $null } | Sort-Object -Unique | Where-Object { $_ } | ForEach-Object { $_.ToLower() } | Split-Path -Leaf
+        
         if ($null -ne $referencedScripts ) {
             $unused = Compare-Object -ReferenceObject $scriptFiles -DifferenceObject $referencedScripts | Where-Object { $_.SideIndicator -eq '<=' } | Select-Object -ExpandProperty InputObject
         }
@@ -2265,7 +2266,7 @@ function Get-UnusedNetlogonScripts {
         }
     }
 
-    $unused = $unused | Where-Object { $_ -ne $null } | Sort-Object -Unique
+    $unused = $unused | Where-Object { $_ -ne $null } | Sort-Object -Unique 
 
     $unusedScripts = [PSCustomObject]@{
         DomainName    = $DomainName
