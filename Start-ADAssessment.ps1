@@ -12,7 +12,6 @@
     version 1.5 | 05/07/2023 Performance improvements in DFS inventory and added error details in DHCP inventory
     version 1.6 | 08/07/2023 Poential Service account inventory function added
     version 1.7 | 10/07/2023 PS jobs added for DNS related details
-    version 1.8 | 13/09/2023 Added support for collected individual DC login count from last 30 days in order to compare usages
 
     The script is kept as much modular as possible so that functions can be modified or added without altering the entire script
     It should be run as administrator and preferably Enterprise Administrator to get complete data. Its advised to run in demonstration environment to be sure first
@@ -56,7 +55,6 @@
     34. Test-ADHealth                   # This function performs a health check of the Active Directory environment, including checks for replication, DNS, AD trust, and other common issues.
     35. Get-ADReplicationHealth         # This function checks the replication health of domain controllers in the Active Directory domain.
     36. Get-ADForestDetails             # This function retrieves detailed information about the Active Directory forest using the earlier defined functions and generates the html report.
-    37. Get-DCLoginCount                # THis function retrives the login counts against each domain controller in the given domain for last 30 days
 
 #>
 
@@ -2229,12 +2227,12 @@ function Get-UnusedNetlogonScripts {
 
     $netlogonPath = "\\$DomainName\netlogon"
     try {
-        $scriptFiles = Get-ChildItem -Path $netlogonPath -File -Recurse | Select-Object -ExpandProperty FullName
+        $scriptFiles = Get-ChildItem -Path $netlogonPath -File -Recurse | Split-Path -Leaf #| Select-Object -ExpandProperty FullName
     }
     catch {
         Write-Log -logtext "Could not access Netlogon share to read script files : $($_.Exception.Message)" -logpath $logpath
     }
-    $scriptFiles = $scriptfiles -replace $DomainName, $DomainName.Split(".")[0] | Where-Object { $_ -ne $null } | Sort-Object -Unique
+    #$scriptFiles = $scriptfiles -replace $DomainName, $DomainName.Split(".")[0] | Where-Object { $_ -ne $null } | Sort-Object -Unique
     
     $Filter = "(&(objectCategory=User)(objectClass=User)(scriptPath=*))"    
     $referencedScripts = (Get-ADUser -LDAPFilter $Filter -Server $PDC -Credential $Credential -Properties ScriptPath | Select-Object ScriptPath -Unique).ScriptPath    
@@ -2253,7 +2251,7 @@ function Get-UnusedNetlogonScripts {
             $referencedScripts += $computerScripts, $userScripts
         }
         
-        $referencedScripts = $referencedScripts -replace $DomainName, $DomainName.Split(".")[0] | Where-Object { $_ -ne $null } | Sort-Object -Unique
+        $referencedScripts = $referencedScripts | Split-Path -Leaf #-replace $DomainName, $DomainName.Split(".")[0] | Where-Object { $_ -ne $null } | Sort-Object -Unique
 
         if ($null -ne $referencedScripts ) {
             $unused = Compare-Object -ReferenceObject $scriptFiles -DifferenceObject $referencedScripts | Where-Object { $_.SideIndicator -eq '<=' } | Select-Object -ExpandProperty InputObject
@@ -2284,9 +2282,9 @@ function Get-PotentialSvcAccount {
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 1 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
     $null = Get-Job | Remove-Job
 
-    $MSAs = Get-ADServiceAccount -Filter * -Server $PDC -Credential $Credential -Properties DNSHostName, WhenCreated, WhenChanged, PrincipalsAllowedToRetrieveManagedPassword, CanonicalName, ServicePrincipalNames, WhenCreated, WhenChanged, msDS-ManagedPasswordInterval, lastLogonTimestamp | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, Name, Enabled, DNSHostName, @{l = "PrincipalsAllowedToRetrieveManagedPassword"; e = { $_.PrincipalsAllowedToRetrieveManagedPassword -join "," } } , @{l = "ServicePrincipalNames"; e = { $_.ServicePrincipalNames -join "," } } , WhenCreated, WhenChanged, msDS-ManagedPasswordInterval, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } } | Sort-Object Lastlogon
-    $UserswithFGP = Get-ADuser -ldapfilter "(&(objectCategory=user)(msDS-PSOApplied=*))" -Server $PDC -Credential $Credential -Properties CanonicalName, Displayname, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, LastLogonTimestamp, WhenCreated, WhenChanged, PasswordLastSet | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, SamAccountName, Displayname, Enabled, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } }, @{l = "FineGrainedPasswordPolicy"; e = { (Get-ADUserResultantPasswordPolicy $_.SamAccountName  -Server $PDC -Credential $Credential ).Name } }, WhenCreated, WhenChanged, PasswordLastSet, @{l = "MemberOf"; e = { ($_.memberOf | Get-ADGroup).SamAccountName -join "`n" } } | Sort-Object Lastlogon
-    $PotentialSvcUsers = Get-ADuser -filter { Enabled -eq $true } -Server $PDC -Credential $Credential -Properties CanonicalName, Displayname, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, LastLogonTimestamp, WhenCreated, WhenChanged, PasswordLastSet | Where-Object { $_.CannotChangePassword -OR $_.PasswordNeverExpires -OR $_.PasswordNotRequired -OR $_.SamAccountName -like "*svc*" } | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, SamAccountName, Displayname, Enabled, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } }, @{l = "FineGrainedPasswordPolicy"; e = { "NA" } }, WhenCreated, WhenChanged, PasswordLastSet, @{l = "MemberOf"; e = { ($_.memberOf | Get-ADGroup).SamAccountName -join "`n" } } | Sort-Object Lastlogon
+    $MSAs = Get-ADServiceAccount -Filter * -Server $PDC -Credential $Credential -Properties DNSHostName, WhenCreated, WhenChanged, PrincipalsAllowedToRetrieveManagedPassword, CanonicalName, ServicePrincipalNames, WhenCreated, WhenChanged, msDS-ManagedPasswordInterval, lastLogonTimestamp, description | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, Name,  @{l="Enabled";e={ (&{If(-not $_.Enabled) {"Enabled"} Else {"Disabled"}})}}, DNSHostName, @{l = "PrincipalsAllowedToRetrieveManagedPassword"; e = { $_.PrincipalsAllowedToRetrieveManagedPassword -join "," } } , @{l = "ServicePrincipalNames"; e = { $_.ServicePrincipalNames -join "," } } , WhenCreated, WhenChanged, msDS-ManagedPasswordInterval, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } }, description | Sort-Object Lastlogon
+    $UserswithFGP = Get-ADuser -ldapfilter "(&(objectCategory=user)(msDS-PSOApplied=*))" -Server $PDC -Credential $Credential -Properties CanonicalName, Displayname, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, LastLogonTimestamp, WhenCreated, WhenChanged, PasswordLastSet, description, memberof | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, SamAccountName, Displayname, @{l="Enabled";e={ (&{If($_.Enabled) {"Enabled"} Else {"Disabled"}})}}, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } }, @{l = "FineGrainedPasswordPolicy"; e = { (Get-ADUserResultantPasswordPolicy $_.SamAccountName  -Server $PDC -Credential $Credential ).Name } }, WhenCreated, WhenChanged, PasswordLastSet, @{l = "MemberOf"; e = { ($_.memberOf | Get-ADGroup).SamAccountName -join "`n" } }, description | Sort-Object Lastlogon
+    $PotentialSvcUsers = Get-ADuser -filter { Enabled -eq $true } -Server $PDC -Credential $Credential -Properties CanonicalName, Displayname, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, LastLogonTimestamp, WhenCreated, WhenChanged, PasswordLastSet, description, memberof | Where-Object { $_.CannotChangePassword -OR $_.PasswordNeverExpires -OR $_.PasswordNotRequired -OR $_.SamAccountName -like "*svc*" } | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, SamAccountName, Displayname, @{l="Enabled";e={ (&{If($_.Enabled) {"Enabled"} Else {"Disabled"}})}}, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } }, @{l = "FineGrainedPasswordPolicy"; e = { "NA" } }, WhenCreated, WhenChanged, PasswordLastSet, @{l = "MemberOf"; e = { ($_.memberOf | Get-ADGroup).SamAccountName -join "`n" } }, description | Sort-Object Lastlogon
     $PotentialSvcUsers = ($PotentialSvcUsers | Where-Object { $_.SamAccountName -notin $UserswithFGP.SamAccountNameP }) + $UserswithFGP
 
     $PotentialSvc = [PSCustomObject] @{
@@ -2396,7 +2394,7 @@ function Get-DCLoginCount {
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 1 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
     $null = Get-Job | Remove-Job
 
-    $DCs = (Get-ADDomainController -Filter * -Server $PDC).Hostname
+    $DCs = Get-ADDomainController -Filter * -Server $PDC | Select-Object Hostname, OperatingSystem, Site
 
     ForEach ($DC in $Dcs) {
         $jobs = @()
@@ -2408,10 +2406,18 @@ function Get-DCLoginCount {
         $ScriptBlock = {
             param ($DomainName, $DC, $LoginThreshold)
 
+            try{
+                $LoginCount       = (Invoke-command -ComputerName $DC.Hostname -ScriptBlock { Get-ADUser -Filter * -Properties lastlogon -Server $args[0] } -ArgumentList $DC.Hostname | Select-Object Samaccountname, @{l = "lastlogon"; e = { [DateTime]::FromFileTime($_.lastlogon) } } | Where-Object { $_.LastLogon -gt (Get-Date).AddDays( - ($LoginThreshold)) }).count
+            } catch {
+                $LoginCount = "$($DC.HostName) not reachable."
+            }
+
             $tempObject = [PSCustomObject]@{
                 Domain           = $DomainName
-                DomainController = $DC
-                LoginCount       = (Get-ADUser -Filter * -Properties lastlogon -Server $DC | Select-Object Samaccountname, @{l = "lastlogon"; e = { [DateTime]::FromFileTime($_.lastlogon) } } | Where-Object { $_.LastLogon -gt (Get-Date).AddDays( - ($LoginThreshold)) }).count
+                DomainController = $DC.Hostname
+                OperatingSystem = $DC.OperatingSystem
+                Site = $DC.Site
+                LoginCount       = $LoginCount
             }
 
             Return $tempObject
@@ -2428,7 +2434,7 @@ function Get-DCLoginCount {
         $null = Get-Job | remove-Job
     }
 
-    $Summary = $Summary | Select-Object Domain, DomainController, LoginCount | Sort-Object LoginCount -Descending
+    $Summary = $Summary | Select-Object Domain, DomainController, OperatingSystem, Site, LoginCount | Sort-Object LoginCount -Descending
     
     Return $Summary
 }
@@ -3270,7 +3276,7 @@ Function Get-ADForestDetails {
     }
 
     $DomainSummary = ($DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>") -replace '<td>Reg not found</td>', '<td bgcolor="red">Reg not found</td>' -replace "`n", "<br>"
-    $DCLoginCountSummary = $DCLoginCount | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers login count Summary</h2>"
+    $DCLoginCountSummary = $DCLoginCount | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers login count Summary (Last 30 days)</h2>"
     $DomainHealthSumamry = ($ADHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controller health Summary</h2>") -replace "`n", "<br>" -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
     $ReplhealthSummary = ($ReplicationHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Replication health Summary</h2>") -replace "`n", "<br>"
     $DNSSummary = ($DNSServerDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Servers Summary</h2>") -replace "`n", "<br>"
