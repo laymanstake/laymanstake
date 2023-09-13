@@ -3307,7 +3307,6 @@ Write-Output "Menu:"
 "Option 3: Press any other key to Quit`n"
 
 $choice = Read-Host "Enter your choice: "
-Write-Output "`nDO NOT OPEN LOG FILE DURING RUN otherwise it would not record`n`n`n"
 
 switch ($choice) {
     '1' {
