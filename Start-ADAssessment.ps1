@@ -2379,6 +2379,58 @@ function Get-SysvolNetlogonPermissions {
     return $SysvolNetlogonPermissions
 }
 
+# THis function retrives the login counts against each domain controller in the given domain for last 30 days
+function Get-DCLoginCount {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, Mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)][pscredential]$Credential
+    )
+
+    $Summary = @()
+    $maxParallelJobs = 50
+
+    $LoginThreshold = 30
+    $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 1 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
+    $null = Get-Job | Remove-Job
+
+    $DCs = (Get-ADDomainController -Filter * -Server $PDC).Hostname
+
+    ForEach ($DC in $Dcs) {
+        $jobs = @()
+
+        while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
+            Start-Sleep -Milliseconds 50  # Wait for 0.05 seconds before checking again
+        }
+
+        $ScriptBlock = {
+            param ($DomainName, $DC, $LoginThreshold)
+
+            $tempObject = [PSCustomObject]@{
+                Domain           = $DomainName
+                DomainController = $DC
+                LoginCount       = (Get-ADUser -Filter * -Properties lastlogon -Server $DC | Select-Object Samaccountname, @{l = "lastlogon"; e = { [DateTime]::FromFileTime($_.lastlogon) } } | Where-Object { $_.LastLogon -gt (Get-Date).AddDays( - ($LoginThreshold)) }).count
+            }
+
+            Return $tempObject
+            
+        }
+
+        $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $DomainName, $DC, $LoginThreshold
+
+        $null = $jobs | Wait-Job    
+        
+        foreach ($job in $jobs) {
+            $Summary += Receive-Job -Job $job
+        }
+        $null = Get-Job | remove-Job
+    }
+
+    $Summary = $Summary | Select-Object Domain, DomainController, LoginCount | Sort-Object LoginCount -Descending
+    
+    Return $Summary
+}
+
 # This function collects detailed system information from client computers in the Active Directory domain, including hardware, software, and network configuration.
 Function Get-SystemInfo {
     [CmdletBinding()]
@@ -2962,6 +3014,7 @@ Function Get-ADForestDetails {
     $unusedScripts = @()
     $SysvolNetlogonPermissions = @()
     $DCInventory = @()
+    $DCLoginCount = @()
     $ADHealth = @()
     $ReplicationHealth = @()
     $PotentialSvc = @()
@@ -3002,6 +3055,16 @@ Function Get-ADForestDetails {
         $DCInventory += Get-SystemInfo -DomainName $domain -Credential $Credential -servers ($DomainDetails | Where-Object { $_.Domain -eq $domain }).DCName
         
         $message = "The domain: $Domain DC inventory related details collected."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+
+        $message = "Working over domain: $Domain DC logins count related details."
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+
+        $DCLoginCount += Get-DCLoginCount -DomainName $domain -Credential $Credential
+
+        $message = "The domain: $Domain DC logins count related details collected."
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
 
@@ -3205,6 +3268,7 @@ Function Get-ADForestDetails {
     }
 
     $DomainSummary = ($DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>") -replace '<td>Reg not found</td>', '<td bgcolor="red">Reg not found</td>' -replace "`n", "<br>"
+    $DCLoginCountSummary = $DCLoginCount | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers login count Summary</h2>"
     $DomainHealthSumamry = ($ADHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controller health Summary</h2>") -replace "`n", "<br>" -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
     $ReplhealthSummary = ($ReplicationHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Replication health Summary</h2>") -replace "`n", "<br>"
     $DNSSummary = ($DNSServerDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Servers Summary</h2>") -replace "`n", "<br>"
@@ -3231,7 +3295,7 @@ Function Get-ADForestDetails {
     New-BaloonNotification -title "Information" -message $message
     Write-Log -logtext $message -logpath $logpath
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DomainHealthSumamry $ReplhealthSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $MSASummary $ServiceAccountSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory $DCSummary $DFSSummary $DFSRepGroupSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DCLoginCountSummary $DomainHealthSumamry $ReplhealthSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $MSASummary $ServiceAccountSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory $DCSummary $DFSSummary $DFSRepGroupSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath
 }
 
