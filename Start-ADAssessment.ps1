@@ -12,6 +12,7 @@
     version 1.5 | 05/07/2023 Performance improvements in DFS inventory and added error details in DHCP inventory
     version 1.6 | 08/07/2023 Poential Service account inventory function added
     version 1.7 | 10/07/2023 PS jobs added for DNS related details
+    version 1.8 | 13/09/2023 Added support for collected individual DC login count from last 30 days in order to compare usages
 
     The script is kept as much modular as possible so that functions can be modified or added without altering the entire script
     It should be run as administrator and preferably Enterprise Administrator to get complete data. Its advised to run in demonstration environment to be sure first
@@ -55,6 +56,7 @@
     34. Test-ADHealth                   # This function performs a health check of the Active Directory environment, including checks for replication, DNS, AD trust, and other common issues.
     35. Get-ADReplicationHealth         # This function checks the replication health of domain controllers in the Active Directory domain.
     36. Get-ADForestDetails             # This function retrieves detailed information about the Active Directory forest using the earlier defined functions and generates the html report.
+    37. Get-DCLoginCount                # THis function retrives the login counts against each domain controller in the given domain for last 30 days
 
 #>
 
@@ -1938,7 +1940,9 @@ Function Get-DomainClientDetails {
                 DomainName     = $DomainName
                 OSName         = $OS.Name
                 Count          = $OS.count
+                Disabled       = ($Workstations | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.Enabled -eq $false }).Name.Count
                 StaleCount_90d = ($Workstations | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.PasswordLastSet -lt $Today.AddDays( - ($InactivePeriod)) }).Name.Count
+                
             }
         }
     }
@@ -2282,9 +2286,9 @@ function Get-PotentialSvcAccount {
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 1 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
     $null = Get-Job | Remove-Job
 
-    $MSAs = Get-ADServiceAccount -Filter * -Server $PDC -Credential $Credential -Properties DNSHostName, WhenCreated, WhenChanged, PrincipalsAllowedToRetrieveManagedPassword, CanonicalName, ServicePrincipalNames, WhenCreated, WhenChanged, msDS-ManagedPasswordInterval, lastLogonTimestamp, description | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, Name,  @{l="Enabled";e={ (&{If(-not $_.Enabled) {"Enabled"} Else {"Disabled"}})}}, DNSHostName, @{l = "PrincipalsAllowedToRetrieveManagedPassword"; e = { $_.PrincipalsAllowedToRetrieveManagedPassword -join "," } } , @{l = "ServicePrincipalNames"; e = { $_.ServicePrincipalNames -join "," } } , WhenCreated, WhenChanged, msDS-ManagedPasswordInterval, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } }, description | Sort-Object Lastlogon
-    $UserswithFGP = Get-ADuser -ldapfilter "(&(objectCategory=user)(msDS-PSOApplied=*))" -Server $PDC -Credential $Credential -Properties CanonicalName, Displayname, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, LastLogonTimestamp, WhenCreated, WhenChanged, PasswordLastSet, description, memberof | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, SamAccountName, Displayname, @{l="Enabled";e={ (&{If($_.Enabled) {"Enabled"} Else {"Disabled"}})}}, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } }, @{l = "FineGrainedPasswordPolicy"; e = { (Get-ADUserResultantPasswordPolicy $_.SamAccountName  -Server $PDC -Credential $Credential ).Name } }, WhenCreated, WhenChanged, PasswordLastSet, @{l = "MemberOf"; e = { ($_.memberOf | Get-ADGroup).SamAccountName -join "`n" } }, description | Sort-Object Lastlogon
-    $PotentialSvcUsers = Get-ADuser -filter { Enabled -eq $true } -Server $PDC -Credential $Credential -Properties CanonicalName, Displayname, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, LastLogonTimestamp, WhenCreated, WhenChanged, PasswordLastSet, description, memberof | Where-Object { $_.CannotChangePassword -OR $_.PasswordNeverExpires -OR $_.PasswordNotRequired -OR $_.SamAccountName -like "*svc*" } | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, SamAccountName, Displayname, @{l="Enabled";e={ (&{If($_.Enabled) {"Enabled"} Else {"Disabled"}})}}, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } }, @{l = "FineGrainedPasswordPolicy"; e = { "NA" } }, WhenCreated, WhenChanged, PasswordLastSet, @{l = "MemberOf"; e = { ($_.memberOf | Get-ADGroup).SamAccountName -join "`n" } }, description | Sort-Object Lastlogon
+    $MSAs = Get-ADServiceAccount -Filter * -Server $PDC -Credential $Credential -Properties DNSHostName, WhenCreated, WhenChanged, PrincipalsAllowedToRetrieveManagedPassword, CanonicalName, ServicePrincipalNames, WhenCreated, WhenChanged, msDS-ManagedPasswordInterval, lastLogonTimestamp, description | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, Name, @{l = "Enabled"; e = { (& { If (-not $_.Enabled) { "Enabled" } Else { "Disabled" } }) } }, DNSHostName, @{l = "PrincipalsAllowedToRetrieveManagedPassword"; e = { $_.PrincipalsAllowedToRetrieveManagedPassword -join "," } } , @{l = "ServicePrincipalNames"; e = { $_.ServicePrincipalNames -join "," } } , WhenCreated, WhenChanged, msDS-ManagedPasswordInterval, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } }, description | Sort-Object Lastlogon
+    $UserswithFGP = Get-ADuser -ldapfilter "(&(objectCategory=user)(msDS-PSOApplied=*))" -Server $PDC -Credential $Credential -Properties CanonicalName, Displayname, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, LastLogonTimestamp, WhenCreated, WhenChanged, PasswordLastSet, description, memberof | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, SamAccountName, Displayname, @{l = "Enabled"; e = { (& { If ($_.Enabled) { "Enabled" } Else { "Disabled" } }) } }, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } }, @{l = "FineGrainedPasswordPolicy"; e = { (Get-ADUserResultantPasswordPolicy $_.SamAccountName  -Server $PDC -Credential $Credential ).Name } }, WhenCreated, WhenChanged, PasswordLastSet, @{l = "MemberOf"; e = { ($_.memberOf | Get-ADGroup).SamAccountName -join "`n" } }, description | Sort-Object Lastlogon
+    $PotentialSvcUsers = Get-ADuser -filter { Enabled -eq $true } -Server $PDC -Credential $Credential -Properties CanonicalName, Displayname, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, LastLogonTimestamp, WhenCreated, WhenChanged, PasswordLastSet, description, memberof | Where-Object { $_.CannotChangePassword -OR $_.PasswordNeverExpires -OR $_.PasswordNotRequired -OR $_.SamAccountName -like "*svc*" } | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, SamAccountName, Displayname, @{l = "Enabled"; e = { (& { If ($_.Enabled) { "Enabled" } Else { "Disabled" } }) } }, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } }, @{l = "FineGrainedPasswordPolicy"; e = { "NA" } }, WhenCreated, WhenChanged, PasswordLastSet, @{l = "MemberOf"; e = { ($_.memberOf | Get-ADGroup).SamAccountName -join "`n" } }, description | Sort-Object Lastlogon
     $PotentialSvcUsers = ($PotentialSvcUsers | Where-Object { $_.SamAccountName -notin $UserswithFGP.SamAccountNameP }) + $UserswithFGP
 
     $PotentialSvc = [PSCustomObject] @{
@@ -2406,17 +2410,18 @@ function Get-DCLoginCount {
         $ScriptBlock = {
             param ($DomainName, $DC, $LoginThreshold)
 
-            try{
-                $LoginCount       = (Invoke-command -ComputerName $DC.Hostname -ScriptBlock { Get-ADUser -Filter * -Properties lastlogon -Server $args[0] } -ArgumentList $DC.Hostname | Select-Object Samaccountname, @{l = "lastlogon"; e = { [DateTime]::FromFileTime($_.lastlogon) } } | Where-Object { $_.LastLogon -gt (Get-Date).AddDays( - ($LoginThreshold)) }).count
-            } catch {
+            try {
+                $LoginCount = (Invoke-command -ComputerName $DC.Hostname -ScriptBlock { Get-ADUser -Filter * -Properties lastlogon -Server $args[0] } -ArgumentList $DC.Hostname | Select-Object Samaccountname, @{l = "lastlogon"; e = { [DateTime]::FromFileTime($_.lastlogon) } } | Where-Object { $_.LastLogon -gt (Get-Date).AddDays( - ($LoginThreshold)) }).count
+            }
+            catch {
                 $LoginCount = "$($DC.HostName) not reachable."
             }
 
             $tempObject = [PSCustomObject]@{
                 Domain           = $DomainName
                 DomainController = $DC.Hostname
-                OperatingSystem = $DC.OperatingSystem
-                Site = $DC.Site
+                OperatingSystem  = $DC.OperatingSystem
+                Site             = $DC.Site
                 LoginCount       = $LoginCount
             }
 
