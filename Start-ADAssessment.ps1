@@ -2416,7 +2416,7 @@ function Get-DCLoginCount {
             Start-Sleep -Milliseconds 50  # Wait for 0.05 seconds before checking again
         }
 
-        $message = "Getting user login details from $($DC) in $($DomainName)"
+        $message = "Getting user login details from $($DC.Hostname) in $($DomainName)"
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
 
