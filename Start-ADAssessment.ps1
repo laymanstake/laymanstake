@@ -2395,6 +2395,14 @@ function Get-DCLoginCount {
     $Summary = @()
     $maxParallelJobs = 50
 
+    $scriptBlock1 = ${function:Write-log}
+    $scriptBlock2 = ${function:New-BaloonNotification}
+    
+    $initScript = [scriptblock]::Create(@"
+    function Write-log {$scriptBlock1}
+    function New-BaloonNotification {$scriptBlock2}
+"@)
+
     $LoginThreshold = 30
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 1 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
     $null = Get-Job | Remove-Job
@@ -2407,6 +2415,10 @@ function Get-DCLoginCount {
         while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
             Start-Sleep -Milliseconds 50  # Wait for 0.05 seconds before checking again
         }
+
+        $message = "Getting user login details from $($DC) in $($DomainName)"
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
 
         $ScriptBlock = {
             param ($DomainName, $DC, $LoginThreshold)
@@ -2430,15 +2442,19 @@ function Get-DCLoginCount {
             
         }
 
-        $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $DomainName, $DC, $LoginThreshold
-
-        $null = $jobs | Wait-Job    
-        
-        foreach ($job in $jobs) {
-            $Summary += Receive-Job -Job $job
-        }
-        $null = Get-Job | remove-Job
+        $jobs += Start-Job -ScriptBlock $scriptBlock -ArgumentList $DomainName, $DC, $LoginThreshold -InitializationScript $initscript        
     }
+
+    $message = "$($jobs.count) Jobs submitted for getting user login details from All domain controllers in $($DomainName)"
+    New-BaloonNotification -title "Information" -message $message
+    Write-Log -logtext $message -logpath $logpath
+
+    $null = $jobs | Wait-Job
+        
+    foreach ($job in $jobs) {
+        $Summary += Receive-Job -Job $job
+    }
+    $null = Get-Job | remove-Job
 
     $Summary = $Summary | Select-Object Domain, DomainController, OperatingSystem, Site, LoginCount | Sort-Object LoginCount -Descending
     
@@ -3298,7 +3314,7 @@ Function Get-ADForestDetails {
     $SysvolNetlogonPermSummary = ($SysvolNetlogonPermissions | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Sysvol and Netlogon Permissions Summary</h2>") -replace "`n", "<br>"
     $SecuritySummary = ($SecuritySettings | ConvertTo-Html -As List  -Fragment -PreContent "<h2>Domains Security Settings Summary</h2>") -replace "`n", "<br>" -replace '<td>Access denied</td>', '<td bgcolor="red">Access denied</td>' -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
     $MSASummary = ($PotentialSvc.MSAs | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Managed Service Account Summary</h2>") -replace "`n", "<br>"
-    $ServiceAccountSummary = ($PotentialSvc.SvcUsers | Sort-Object -Property Domain, FineGrainedPasswordPolicy | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Potential Service Account Summary</h2>") -replace '<td>True</td>', '<td bgcolor="green">True</td>'
+    $ServiceAccountSummary = ($PotentialSvc.SvcUsers | Sort-Object -Property Domain, FineGrainedPasswordPolicy | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Potential Service Account Summary</h2>") -replace '<td>True</td>', '<td bgcolor="green">True</td>' -replace "`n", "<br>"
     $DCSummary = ($DCInventory | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers Inventory</h2>") -replace "`n", "<br>"
     if ($DFS -AND $DFSFlag) {
         $DFSSummary = ($DFSDetails.NameSpace | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DFS Namespace Inventory</h2>") -replace "`n", "<br>"
