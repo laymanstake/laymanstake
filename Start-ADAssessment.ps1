@@ -2449,7 +2449,7 @@ function Get-DCLoginCount {
     New-BaloonNotification -title "Information" -message $message
     Write-Log -logtext $message -logpath $logpath
 
-    $null = $jobs | Wait-Job
+    $null = Wait-Job $jobs
         
     foreach ($job in $jobs) {
         $Summary += Receive-Job -Job $job
