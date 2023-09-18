@@ -519,27 +519,26 @@ Function Get-PKIDetails {
 
                 # Find the name of the CA on the domain joined enterprised CA
                 $RemoteReg = [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $PKI.DnsHostName)
-                $key = $remotereg.OpenSubkey("SYSTEM\CurrentControlSet\Services\CertSvc\Configuration")
+                $CNGHashAlgorithm = $remotereg.OpenSubkey("SYSTEM\CurrentControlSet\Services\CertSvc\Configuration\EEG Issuing CA\CSP").GetValue("CNGHashAlgorithm")
+                $key = $remotereg.OpenSubkey("SYSTEM\CurrentControlSet\Services\CertSvc\Configuration")                
                 $CertAuthorityName = $key.GetSubkeyNames() # Name of the CA, not hostname
                 
                 # Find the certificate of the particular CA authority name and then find out, who issued certificate and then ensure it's not some cert which has been renewed
                 $CADetails = invoke-command -ComputerName $PKI.DnsHostName -Credential $Credential -ScriptBlock {
-                    $RootCa = ((Get-ChildItem -Path cert:\LocalMachine\CA | Where-Object { ($_.Subject -split "=" -split ",")[1] -eq $using:CertAuthorityName }).Issuer -split "=" -split "," )[1]
-                    $ActiveRootCACert = (Get-ChildItem -Path cert:\LocalMachine\CA | Where-Object { ($_.Issuer -split "=" -split ",")[1] -eq $RootCa -AND ($_.Subject -split "=" -split ",")[1] -eq $RootCa } ) | Where-Object { $_.Extensions.oid.friendlyName -notcontains "Previous ca certificate hash" } | Sort-Object -Unique
+                    $RootCa = ((Get-ChildItem -Path cert:\LocalMachine\CA | Where-Object { ($_.Subject -split "=" -split ",")[1] -eq $using:CertAuthorityName }).Issuer -split "=" -split "," )[1]                    
                     $CertSummary = certutil -view -out "Issued Request ID,Requester Name,Request Type,Issued Common Name,Certificate Template,Public Key Length,Certificate Effective Date,Certificate Expiration Date" csv  | ConvertFrom-Csv                    
-                    $rootCa
-                    $ActiveRootCACert.SignatureAlgorithm.Friendlyname -join ","
+                    $rootCa                    
                     ($CertSummary | Group-Object "Certificate Template" | Select-Object @{l = "TemplateSummary"; e = { "$($_.Name) - $($_.Count)" } }).TemplateSummary -join "`n"
                 }
-                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "SecureHashAlgo" -value $CADetails[1]
+                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "CNGHashAlgorithm" -value $CNGHashAlgorithm
                 Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "StandAloneCA" -value $CADetails[0]
-                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "IssedCertSummary" -value $CADetails[2]
+                Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "IssedCertSummary" -value $CADetails[1]
                 $null = $RemoteReg.close()
             }
         }
         catch {
             Write-Log -logtext "PKI Server - WinRM access denied, can't obtain SHA information from $server : $($_.Exception.Message)" -logpath $logpath            
-            Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "SecureHashAlgo" -value "UNKNOWN"
+            Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "CNGHashAlgorithm" -value "UNKNOWN"
             Add-Member -inputObject $PKIDetails -memberType NoteProperty -name "StandAloneCA" -value "UNKNOWN"
         }
     }    
