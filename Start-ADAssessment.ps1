@@ -2405,17 +2405,16 @@ function Get-DCLoginCount {
     $LoginThreshold = 30
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 1 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
     $null = Get-Job | Remove-Job
+    $jobs = @()
 
     $DCs = Get-ADDomainController -Filter * -Server $PDC | Select-Object Hostname, OperatingSystem, Site
 
     ForEach ($DC in $Dcs) {
-        $jobs = @()
-
         while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
             Start-Sleep -Milliseconds 50  # Wait for 0.05 seconds before checking again
         }
 
-        $message = "Getting user login details from $($DC) in $($DomainName)"
+        $message = "Getting user login details from $($DC.Hostname) in $($DomainName)"
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
 
@@ -2448,7 +2447,7 @@ function Get-DCLoginCount {
     New-BaloonNotification -title "Information" -message $message
     Write-Log -logtext $message -logpath $logpath
 
-    $null = $jobs | Wait-Job
+    $null = Wait-Job $jobs
         
     foreach ($job in $jobs) {
         $Summary += Receive-Job -Job $job
