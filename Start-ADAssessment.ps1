@@ -798,9 +798,9 @@ Function Get-AdminCountDetails {
 
     $AdminCountDetails = [PSCustomObject]@{
         DomainName          = $DomainName
-        ProtectedUsersCount = $ProtectedUsers.Count
-        UserWithAdminCount  = $UserWithAdminCount.Count - 1
-        UndesiredAdminCount = $UndesiredAdminCount.Count
+        ProtectedUsersCount = @($ProtectedUsers).Count
+        UserWithAdminCount  = @($UserWithAdminCount).Count - 1
+        UndesiredAdminCount = @($UndesiredAdminCount).Count
         UsersToClear        = $UndesiredAdminCount -join "`n"
     }
 
@@ -960,10 +960,10 @@ Function Get-DHCPInventory {
                         DHCPName           = $dhcp.DNSName
                         DHCPAddress        = $dhcp.IPAddress
                         OperatingSystem    = $OS
-                        ScopeCount         = $scopes.count
+                        ScopeCount         = @($scopes).count
                         InactiveScopeCount = @($scopes | Where-Object { $_.State -eq 'Inactive' }).count
                         ScopeWithNoLease   = $NoLeaseScopes -join "`n"
-                        NoLeaseScopeCount  = $NoLeaseScopes.count
+                        NoLeaseScopeCount  = @($NoLeaseScopes).count
                     }
                 }
                 else {
@@ -1700,6 +1700,94 @@ Function Get-ADSiteDetails {
     $SiteDetails = $SiteDetails | Select-Object DomainName, SiteName, SiteCreated, SiteModified, Subnets, SiteProtectedFromAccidentalDeletion, DCinSite, SiteLink, SiteLinkType, SiteLinkCost, ReplicationInterval, LinkProtectedFromAccidentalDeletion | Sort-Object DomainName, SiteLink
 
     return $SiteDetails
+}
+
+# This function provides latency between given list of servers
+Function Get-LatencyTable {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$DomainName,
+        [Parameter(ValueFromPipeline = $true, mandatory = $true)]$Servers
+    )
+
+    $jobResults = @()
+    $maxParallelJobs = 15
+
+    $pingScriptBlock = {
+        param (
+            $sourceServer,
+            $targetServer
+        )
+        
+        $result = Test-Connection -ComputerName $targetServer -Count 1
+        
+        [pscustomobject] @{
+            DC           = $sourceServer
+            TargetServer = $targetServer
+            ResponseTime = $result.ResponseTime
+        }    
+    }
+
+    ForEach ($SourceServer in $Servers) {
+        while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
+            Start-Sleep -Milliseconds 50  # Wait for 0.05 seconds before checking again            
+        }
+
+        $message = "Checking latency to other servers from $SourceServer"
+        New-BaloonNotification -title "Information" -message $message
+        Write-Log -logtext $message -logpath $logpath
+    
+        ForEach ($TargetServer in $Servers) {            
+            try {
+                $job = Invoke-command -ScriptBlock $pingScriptBlock -ArgumentList $SourceServer, $TargetServer -ComputerName $SourceServer -AsJob
+                $JobResults += $job
+            }
+            catch {
+                $_
+            }
+        }
+
+        $JobResults.count
+    }
+
+    $null = $jobResults | Wait-Job
+
+    $results = $jobResults | Receive-Job
+    $null = $jobResults | Remove-Job
+
+    $responseResult = @{}
+
+    ForEach ($result in $results) {
+        $SourceServer = $result.DC
+        $targetServer = $result.Targetserver
+        $ResponseTime = $result.ResponseTime
+
+        If ($responseResult.ContainsKey($SourceServer)) {
+            $responseResult[$sourceServer][$TargetServer] = $ResponseTime
+        }
+        else {
+            $responseResult[$sourceServer] = @{}
+            $responseResult[$sourceServer][$TargetServer] = $ResponseTime
+        }
+    }
+
+    $Table = @()
+
+    ForEach ($SourceServer in $Servers) {
+        $row = New-Object PSObject -Property @{
+            SourceServer = $SourceServer
+        }
+
+        ForEach ($TargetServer in $Servers) {
+            $row | Add-Member -MemberType NoteProperty -Name $TargetServer -Value $responseResult[$SourceServer][$TargetServer]
+        }
+
+        $row | Add-Member -MemberType NoteProperty -Name "DomainName" -Value $DomainName
+
+        $Table += $row
+    }
+
+    Return $Table
 }
 
 # This function retrieves information about privileged groups in the Active Directory domain.
@@ -2914,7 +3002,8 @@ Function Get-ADForestDetails {
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$ADFS,
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$DHCP,
         [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$GPO,
-        [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$DFS
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$DFS,
+        [Parameter(ValueFromPipeline = $true, mandatory = $false)][switch]$Latency
     )    
 
     # Collecting information about current Forest configuration
@@ -3047,6 +3136,7 @@ Function Get-ADForestDetails {
     $ReplicationHealth = @()
     $PotentialSvc = @()
     $DFSDetails = @()
+    $LatencyTable = @()
 
     if (!($forestcheck)) {
         $allDomains = $ChildDomain
@@ -3063,7 +3153,7 @@ Function Get-ADForestDetails {
         Write-Log -logtext $message -logpath $logpath
 
         $TrustDetails += Get-ADTrustDetails -DomainName $domain -credential $Credential
-        $DomainDetails += Get-ADDomainDetails -DomainName $domain -credential $Credential        
+        $DomainDetails += Get-ADDomainDetails -DomainName $domain -credential $Credential
         
         $message = "Working over domain: $Domain Health checks"
         New-BaloonNotification -title "Information" -message $message
@@ -3102,6 +3192,22 @@ Function Get-ADForestDetails {
         $message = "Working over domain: $Domain user summary related details."
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
+        
+        If ($Latency) {            
+            $message = "Working over domain: $Domain site latency details."
+            New-BaloonNotification -title "Information" -message $message
+            Write-Log -logtext $message -logpath $logpath
+
+            $temp = $SiteDetails | Where-Object { $_.DCInSite } | select-Object SiteName, DCInSite | Group-Object SiteName
+            $servers = ($temp | Select-Object Name, @{l = "dc"; e = { ($_.Group[0]).DCInSite } } | Where-Object { $_.DC -ne "No DCs in site" }).Dc
+
+            $LatencyTable += Get-LatencyTable -Servers $servers -DomainName $domain
+
+            $message = "Details for domain: $Domain site latency details done."
+            New-BaloonNotification -title "Information" -message $message
+            Write-Log -logtext $message -logpath $logpath
+        }
+        
         
         $UserDetails += Get-ADUserDetails -DomainName $domain -credential $Credential
         $BuiltInUserDetails += Get-BuiltInUserDetails -DomainName $domain -credential $Credential
@@ -3297,6 +3403,7 @@ Function Get-ADForestDetails {
 
     $DomainSummary = ($DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>") -replace '<td>Reg not found</td>', '<td bgcolor="red">Reg not found</td>' -replace "`n", "<br>"
     $DCLoginCountSummary = $DCLoginCount | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers login count Summary (Last 30 days)</h2>"
+    $LatencySummary = $LatencyTable | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Ping Latency between Sites</h2>"
     $DomainHealthSumamry = ($ADHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controller health Summary</h2>") -replace "`n", "<br>" -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
     $ReplhealthSummary = ($ReplicationHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Replication health Summary</h2>") -replace "`n", "<br>"
     $DNSSummary = ($DNSServerDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Servers Summary</h2>") -replace "`n", "<br>"
@@ -3323,7 +3430,7 @@ Function Get-ADForestDetails {
     New-BaloonNotification -title "Information" -message $message
     Write-Log -logtext $message -logpath $logpath
 
-    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DCLoginCountSummary $DomainHealthSumamry $ReplhealthSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $MSASummary $ServiceAccountSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory $DCSummary $DFSSummary $DFSRepGroupSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
+    $ReportRaw = ConvertTo-HTML -Body "$ForestSummary $ForestPrivGroupsSummary $TrustSummary $PKISummary $ADSyncSummary $ADFSSummary $DHCPSummary $DomainSummary $DCLoginCountSummary $LatencySummary $DomainHealthSumamry $ReplhealthSummary $DNSSummary $DNSZoneSummary $SitesSummary $PrivGroupSummary $UserSummary $BuiltInUserSummary $GroupSummary $UndesiredAdminCountSummary $PwdPolicySummary $FGPwdPolicySummary $ObjectsToCleanSummary $OrphanedFSPSummary $unusedScriptsSummary $ServerOSSummary $ClientOSSummary $EmptyOUSummary $GPOSummary $GPOInventory $SysvolNetlogonPermSummary $MSASummary $ServiceAccountSummary $SecuritySummary $DHCPInventorySummary $DHCPResInventory $DCSummary $DFSSummary $DFSRepGroupSummary" -Head $header -Title "Report on AD Forest: $forest" -PostContent "<p id='CreationDate'>Creation Date: $(Get-Date) $CopyRightInfo </p>"
     $ReportRaw | Out-File $ReportPath
 }
 
