@@ -1153,7 +1153,7 @@ Function Get-ADGPOSummary {
 
     $GPOsAtRootLevel = ($ROOTGPOS | ForEach-object { Get-GPO -Guid $_ -Domain $DomainName -Server $PDC }).Displayname
     
-    $LinkedGPOs = ($OUGPOS + $ROOTGPOS) | select-Object -unique | ForEach-object { Get-GPO -guid $_ -Domain $DomainName -Server $PDC } | Select-Object DisplayName, CreationTime, ModificationTime
+    $LinkedGPOs = @($OUGPOS , $ROOTGPOS) | select-Object -unique | ForEach-object { Get-GPO -guid $_ -Domain $DomainName -Server $PDC } | Select-Object DisplayName, CreationTime, ModificationTime
     $UnlinkedGPOs = @($AllGPOs | Where-Object { $_.DisplayName -NotIn $LinkedGPOs.DisplayName } | Select-Object DisplayName, CreationTime, ModificationTime )
     $DeactivatedGPOs = @($AllGPOs | Where-Object { $_.GPOStatus -eq "AllSettingsDisabled" } | Select-Object DisplayName, CreationTime, ModificationTime )
     
@@ -2327,7 +2327,10 @@ function Get-UnusedNetlogonScripts {
     $scriptFiles = $scriptfiles -replace $DomainName, $DomainName.Split(".")[0] | Where-Object { $_ -ne $null } | Sort-Object -Unique | Where-Object { $_ } | ForEach-Object { $_.ToLower() } | Split-Path -Leaf
 
     $Filter = "(&(objectCategory=User)(objectClass=User)(scriptPath=*))"    
-    $referencedScripts = (Get-ADUser -LDAPFilter $Filter -Server $PDC -Credential $Credential -Properties ScriptPath | Select-Object ScriptPath -Unique).ScriptPath | Split-Path -Leaf
+    $referencedScripts = (Get-ADUser -LDAPFilter $Filter -Server $PDC -Credential $Credential -Properties ScriptPath | Select-Object ScriptPath -Unique).ScriptPath 
+    if ($referencedScripts) {
+        $referencedScripts = $referencedScripts | Split-Path -Leaf
+    }
 
     if ($scriptFiles) {
         $gpos = Get-GPO -All -Domain $DomainName -Server $PDC
@@ -2377,7 +2380,12 @@ function Get-PotentialSvcAccount {
     $MSAs = Get-ADServiceAccount -Filter * -Server $PDC -Credential $Credential -Properties DNSHostName, WhenCreated, WhenChanged, PrincipalsAllowedToRetrieveManagedPassword, CanonicalName, ServicePrincipalNames, WhenCreated, WhenChanged, msDS-ManagedPasswordInterval, lastLogonTimestamp, description | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, Name, @{l = "Enabled"; e = { (& { If (-not $_.Enabled) { "Enabled" } Else { "Disabled" } }) } }, DNSHostName, @{l = "PrincipalsAllowedToRetrieveManagedPassword"; e = { $_.PrincipalsAllowedToRetrieveManagedPassword -join "," } } , @{l = "ServicePrincipalNames"; e = { $_.ServicePrincipalNames -join "," } } , WhenCreated, WhenChanged, msDS-ManagedPasswordInterval, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } }, description | Sort-Object Lastlogon
     $UserswithFGP = Get-ADuser -ldapfilter "(&(objectCategory=user)(msDS-PSOApplied=*))" -Server $PDC -Credential $Credential -Properties CanonicalName, Displayname, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, LastLogonTimestamp, WhenCreated, WhenChanged, PasswordLastSet, description, memberof | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, SamAccountName, Displayname, @{l = "Enabled"; e = { (& { If ($_.Enabled) { "Enabled" } Else { "Disabled" } }) } }, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } }, @{l = "FineGrainedPasswordPolicy"; e = { (Get-ADUserResultantPasswordPolicy $_.SamAccountName  -Server $PDC -Credential $Credential ).Name } }, WhenCreated, WhenChanged, PasswordLastSet, @{l = "MemberOf"; e = { ($_.memberOf | Get-ADGroup).SamAccountName -join "`n" } }, description | Sort-Object Lastlogon
     $PotentialSvcUsers = Get-ADuser -filter { Enabled -eq $true } -Server $PDC -Credential $Credential -Properties CanonicalName, Displayname, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, LastLogonTimestamp, WhenCreated, WhenChanged, PasswordLastSet, description, memberof | Where-Object { $_.CannotChangePassword -OR $_.PasswordNeverExpires -OR $_.PasswordNotRequired -OR $_.SamAccountName -like "*svc*" } | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, SamAccountName, Displayname, @{l = "Enabled"; e = { (& { If ($_.Enabled) { "Enabled" } Else { "Disabled" } }) } }, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } }, @{l = "FineGrainedPasswordPolicy"; e = { "NA" } }, WhenCreated, WhenChanged, PasswordLastSet, @{l = "MemberOf"; e = { ($_.memberOf | Get-ADGroup).SamAccountName -join "`n" } }, description | Sort-Object Lastlogon
-    $PotentialSvcUsers = ($PotentialSvcUsers | Where-Object { $_.SamAccountName -notin $UserswithFGP.SamAccountNameP }) + $UserswithFGP
+    if ($PotentialSvcUsers) {
+        $PotentialSvcUsers = @(($PotentialSvcUsers | Where-Object { $_.SamAccountName -notin $UserswithFGP.SamAccountNameP }) , $UserswithFGP)
+    }
+    else {
+        $PotentialSvcUsers = $UserswithFGP
+    }
 
     $PotentialSvc = [PSCustomObject] @{
         MSAs     = $MSAs
