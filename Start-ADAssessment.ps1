@@ -3201,13 +3201,12 @@ Function Get-ADForestDetails {
             $temp = $SiteDetails | Where-Object { $_.DCInSite } | select-Object SiteName, DCInSite | Group-Object SiteName
             $servers = ($temp | Select-Object Name, @{l = "dc"; e = { ($_.Group[0]).DCInSite } } | Where-Object { $_.DC -ne "No DCs in site" }).Dc
 
-            $LatencyTable += Get-LatencyTable -Servers $servers -DomainName $domain
+            $LatencyTable += Get-LatencyTable -Servers $servers -DomainName $domain            
 
             $message = "Details for domain: $Domain site latency details done."
             New-BaloonNotification -title "Information" -message $message
             Write-Log -logtext $message -logpath $logpath
         }
-        
         
         $UserDetails += Get-ADUserDetails -DomainName $domain -credential $Credential
         $BuiltInUserDetails += Get-BuiltInUserDetails -DomainName $domain -credential $Credential
@@ -3345,6 +3344,8 @@ Function Get-ADForestDetails {
         Write-Log -logtext $message -logpath $logpath
     }    
 
+    $LatencyTable | Export-csv -nti "$env:userprofile\desktop\LatencyInfo.csv"
+    
     # This scetion prepares HTML report
     If ($TrustDetails) {
         $TrustSummary = ($TrustDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Trust Summary</h2>")
@@ -3456,7 +3457,7 @@ switch ($choice) {
         }
 
         if ($test) {
-            Get-ADForestDetails -Credential $Credential -ADFS -DHCP -GPO -DFS
+            Get-ADForestDetails -Credential $Credential -ADFS -DHCP -GPO -DFS # -Latency # Latency switch is optional
         }
         else {
             Write-Host "Credentials not working"
@@ -3483,7 +3484,7 @@ switch ($choice) {
         }
 
         if ($test) {
-            Get-ADForestDetails -Credential $DomainCred -ChildDomain $DomainName -ADFS -DHCP -GPO -DFS
+            Get-ADForestDetails -Credential $DomainCred -ChildDomain $DomainName -ADFS -DHCP -GPO -DFS # -Latency # Latency switch is optional
         }
         else {
             Write-Host "Credentials not working"
