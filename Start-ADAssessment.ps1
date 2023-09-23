@@ -1149,11 +1149,12 @@ Function Get-ADGPOSummary {
     $AllGPOs = Get-GPO -All -Domain $DomainName -Server $PDC
 
     $ROOTGPOS = (Get-ADDomain -Server $DomainName -Credential $Credential).LinkedGroupPolicyObjects | ForEach-Object { [regex]::Match($_, '{.*?}').Value.Trim('{}') }
-    $OUGPOS = Get-ADOrganizationalUnit -LDAPFilter '(GPLink=*)' -server $PDC -Credential $Credential -Properties GPLink | Select-Object -ExpandProperty LinkedGroupPolicyObjects | ForEach-Object { ($_ -split ',')[0].Substring(3).Trim('{}') } | Select-Object -Unique
+    $OUGPOS = Get-ADOrganizationalUnit -LDAPFilter '(GPLink=*)' -server $PDC -Credential $Credential -Properties GPLink | Select-Object -ExpandProperty LinkedGroupPolicyObjects | ForEach-Object { ($_ -split ',')[0].Substring(3).Trim('{}') } | Select-Object -Unique   
+    
 
     $GPOsAtRootLevel = ($ROOTGPOS | ForEach-object { Get-GPO -Guid $_ -Domain $DomainName -Server $PDC }).Displayname
     
-    $LinkedGPOs = @($OUGPOS , $ROOTGPOS) | select-Object -unique | ForEach-object { Get-GPO -guid $_ -Domain $DomainName -Server $PDC } | Select-Object DisplayName, CreationTime, ModificationTime
+    $LinkedGPOs = ($OUGPOS + $ROOTGPOS) | select-Object -unique | ForEach-object { Get-GPO -guid $_ -Domain $DomainName -Server $PDC } | Select-Object DisplayName, CreationTime, ModificationTime
     $UnlinkedGPOs = @($AllGPOs | Where-Object { $_.DisplayName -NotIn $LinkedGPOs.DisplayName } | Select-Object DisplayName, CreationTime, ModificationTime )
     $DeactivatedGPOs = @($AllGPOs | Where-Object { $_.GPOStatus -eq "AllSettingsDisabled" } | Select-Object DisplayName, CreationTime, ModificationTime )
     
