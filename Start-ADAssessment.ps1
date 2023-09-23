@@ -3360,12 +3360,8 @@ Function Get-ADForestDetails {
         $message = "Work over domain: $Domain related details done."
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
-    }    
-
-    if ($Latency) {
-        $LatencyTable | Export-csv -nti "$env:userprofile\desktop\LatencyInfo.csv"
     }
-
+    
     # This scetion prepares HTML report
     If ($TrustDetails) {
         $TrustSummary = ($TrustDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Trust Summary</h2>")
@@ -3426,6 +3422,7 @@ Function Get-ADForestDetails {
     $DCLoginCountSummary = $DCLoginCount | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers login count Summary (Last 30 days)</h2>"
     if ($Latency) {
         $LatencySummary = $LatencyTable | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Ping Latency between Sites</h2>"
+        $LatencyTable | Export-csv -nti "$env:userprofile\desktop\LatencyInfo.csv"
     }
     $DomainHealthSumamry = ($ADHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controller health Summary</h2>") -replace "`n", "<br>" -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
     $ReplhealthSummary = ($ReplicationHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Replication health Summary</h2>") -replace "`n", "<br>"
