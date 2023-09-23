@@ -13,6 +13,7 @@
     version 1.6 | 08/07/2023 Poential Service account inventory function added
     version 1.7 | 10/07/2023 PS jobs added for DNS related details
     version 1.8 | 13/09/2023 Added support for collected individual DC login count from last 30 days in order to compare usages
+    version 1.9 | 23/09/2023 Optional Latency switch added to pick one DC from each site and provide latency matrix
 
     The script is kept as much modular as possible so that functions can be modified or added without altering the entire script
     It should be run as administrator and preferably Enterprise Administrator to get complete data. Its advised to run in demonstration environment to be sure first
@@ -56,7 +57,8 @@
     34. Test-ADHealth                   # This function performs a health check of the Active Directory environment, including checks for replication, DNS, AD trust, and other common issues.
     35. Get-ADReplicationHealth         # This function checks the replication health of domain controllers in the Active Directory domain.
     36. Get-ADForestDetails             # This function retrieves detailed information about the Active Directory forest using the earlier defined functions and generates the html report.
-    37. Get-DCLoginCount                # THis function retrives the login counts against each domain controller in the given domain for last 30 days
+    37. Get-DCLoginCount                # This function retrives the login counts against each domain controller in the given domain for last 30 days
+    38. Get-LatencyTable                # This function returns latency between given set of servers
 
 #>
 
@@ -1756,8 +1758,6 @@ Function Get-LatencyTable {
                 $_
             }
         }
-
-        $JobResults.count
     }
 
     $null = $jobResults | Wait-Job
@@ -3360,8 +3360,8 @@ Function Get-ADForestDetails {
         $message = "Work over domain: $Domain related details done."
         New-BaloonNotification -title "Information" -message $message
         Write-Log -logtext $message -logpath $logpath
-    }
-    
+    }    
+
     # This scetion prepares HTML report
     If ($TrustDetails) {
         $TrustSummary = ($TrustDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Trust Summary</h2>")
@@ -3422,7 +3422,7 @@ Function Get-ADForestDetails {
     $DCLoginCountSummary = $DCLoginCount | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers login count Summary (Last 30 days)</h2>"
     if ($Latency) {
         $LatencySummary = $LatencyTable | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Ping Latency between Sites</h2>"
-        $LatencyTable | Export-csv -nti "$env:userprofile\desktop\LatencyInfo.csv"
+        $LatencyTable | ForEach-Object{ [pscustomobject]$_ } | Export-csv -nti "$env:userprofile\desktop\LatencyInfo.csv"
     }
     $DomainHealthSumamry = ($ADHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controller health Summary</h2>") -replace "`n", "<br>" -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
     $ReplhealthSummary = ($ReplicationHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Replication health Summary</h2>") -replace "`n", "<br>"
