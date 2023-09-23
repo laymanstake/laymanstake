@@ -1719,13 +1719,22 @@ Function Get-LatencyTable {
             $targetServer
         )
         
-        $result = Test-Connection -ComputerName $targetServer -Count 1
-        
-        [pscustomobject] @{
-            DC           = $sourceServer
-            TargetServer = $targetServer
-            ResponseTime = $result.ResponseTime
-        }    
+        try {
+            $result = Test-Connection -ComputerName $targetServer -Count 1
+ 
+            [pscustomobject] @{
+                DC           = $sourceServer
+                TargetServer = $targetServer
+                ResponseTime = $result.ResponseTime
+            }    
+        }
+        catch {
+            [pscustomobject] @{
+                DC           = $sourceServer
+                TargetServer = $targetServer
+                ResponseTime = "NR"
+            }
+        }
     }
 
     ForEach ($SourceServer in $Servers) {
@@ -3414,7 +3423,9 @@ Function Get-ADForestDetails {
 
     $DomainSummary = ($DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>") -replace '<td>Reg not found</td>', '<td bgcolor="red">Reg not found</td>' -replace "`n", "<br>"
     $DCLoginCountSummary = $DCLoginCount | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers login count Summary (Last 30 days)</h2>"
-    $LatencySummary = $LatencyTable | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Ping Latency between Sites</h2>"
+    if ($Latency) {
+        $LatencySummary = $LatencyTable | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Ping Latency between Sites</h2>"
+    }
     $DomainHealthSumamry = ($ADHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controller health Summary</h2>") -replace "`n", "<br>" -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
     $ReplhealthSummary = ($ReplicationHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Replication health Summary</h2>") -replace "`n", "<br>"
     $DNSSummary = ($DNSServerDetails  | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>DNS Servers Summary</h2>") -replace "`n", "<br>"
@@ -3467,7 +3478,7 @@ switch ($choice) {
         }
 
         if ($test) {
-            Get-ADForestDetails -Credential $Credential -ADFS -DHCP -GPO -DFS # -Latency # Latency switch is optional
+            Get-ADForestDetails -Credential $Credential -ADFS -DHCP -GPO -DFS -Latency # Latency switch is optional
         }
         else {
             Write-Host "Credentials not working"
@@ -3494,7 +3505,7 @@ switch ($choice) {
         }
 
         if ($test) {
-            Get-ADForestDetails -Credential $DomainCred -ChildDomain $DomainName -ADFS -DHCP -GPO -DFS # -Latency # Latency switch is optional
+            Get-ADForestDetails -Credential $DomainCred -ChildDomain $DomainName -ADFS -DHCP -GPO -DFS -Latency # Latency switch is optional
         }
         else {
             Write-Host "Credentials not working"
