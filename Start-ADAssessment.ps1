@@ -3344,8 +3344,10 @@ Function Get-ADForestDetails {
         Write-Log -logtext $message -logpath $logpath
     }    
 
-    $LatencyTable | Export-csv -nti "$env:userprofile\desktop\LatencyInfo.csv"
-    
+    if ($Latency) {
+        $LatencyTable | Export-csv -nti "$env:userprofile\desktop\LatencyInfo.csv"
+    }
+
     # This scetion prepares HTML report
     If ($TrustDetails) {
         $TrustSummary = ($TrustDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Trust Summary</h2>")
