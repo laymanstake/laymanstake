@@ -469,9 +469,10 @@ Function Get-ADFSDetails {
                         $ADSyncDetail[0] = (Get-ADSyncConnector).name[0]
                         $ADSyncDetail[1] = (Get-ADSyncScheduler).StagingModeEnabled
                         $ADSyncDetail[2] = (Get-ADSyncAADPasswordSyncConfiguration -sourceConnector (Get-ADSyncConnector | Where-Object { $_.ConnectorTypeName -eq "AD" }).Name).Enabled
-                        if($ADSyncDetail[1]){
+                        if ($ADSyncDetail[1]) {
                             $ADSyncDetail[3] = "NA"
-                        } else {
+                        }
+                        else {
                             $ADSyncDetail[3] = (Get-ADSyncAADPasswordResetConfiguration -Connector $ADSyncDetail[0]).Enabled
                         }
                         
@@ -490,14 +491,14 @@ Function Get-ADFSDetails {
             }            
 
             $Info = [PSCustomObject]@{
-                ServerName          = $server
-                OperatingSystem     = (Get-ADComputer $server -server $PDC -Credential $Credential -properties OperatingSystem).OperatingSystem            
-                ADSyncVersion       = $ADSyncVersion
-                Connection          = $ADSyncDetails[0]
-                IsActive            = (Get-Service -ComputerName $Server -Name ADSync -ErrorAction SilentlyContinue).Status -eq "Running"
-                StagingModeEnabled  = $ADSyncDetails[1]
-                PHSEnabled = $ADSyncDetails[2]
-                SSPREnabled         = $ADSyncDetails[3]
+                ServerName         = $server
+                OperatingSystem    = (Get-ADComputer $server -server $PDC -Credential $Credential -properties OperatingSystem).OperatingSystem            
+                ADSyncVersion      = $ADSyncVersion
+                Connection         = $ADSyncDetails[0]
+                IsActive           = (Get-Service -ComputerName $Server -Name ADSync -ErrorAction SilentlyContinue).Status -eq "Running"
+                StagingModeEnabled = $ADSyncDetails[1]
+                PHSEnabled         = $ADSyncDetails[2] 
+                SSPREnabled        = $ADSyncDetails[3]
             }
 
             $AADCServerDetails += $Info
@@ -506,14 +507,14 @@ Function Get-ADFSDetails {
             $ADSyncDetails = @("UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN")
 
             $Info = [PSCustomObject]@{
-                ServerName          = $server
-                OperatingSystem     = (Get-ADComputer $server -server $PDC -Credential $Credential -properties OperatingSystem).OperatingSystem            
-                ADSyncVersion       = $ADSyncVersion
-                Connection          = $ADSyncDetails[0]
-                IsActive            = (Get-Service -ComputerName $Server -Name ADSync -ErrorAction SilentlyContinue).Status -eq "Running"
-                StagingModeEnabled  = $ADSyncDetails[1]
-                PHSEnabled = $ADSyncDetails[2]
-                SSPREnabled         = $ADSyncDetails[3]
+                ServerName         = $server
+                OperatingSystem    = (Get-ADComputer $server -server $PDC -Credential $Credential -properties OperatingSystem).OperatingSystem            
+                ADSyncVersion      = $ADSyncVersion
+                Connection         = $ADSyncDetails[0]
+                IsActive           = (Get-Service -ComputerName $Server -Name ADSync -ErrorAction SilentlyContinue).Status -eq "Running"
+                StagingModeEnabled = $ADSyncDetails[1]
+                PHSEnabled         = $ADSyncDetails[2]
+                SSPREnabled        = $ADSyncDetails[3]
             }
 
             Write-Log -logtext "ADSync Server - Could not find ADSync installation path on $server " -logpath $logpath
