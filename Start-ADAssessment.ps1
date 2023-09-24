@@ -13,6 +13,7 @@
     version 1.6 | 08/07/2023 Poential Service account inventory function added
     version 1.7 | 10/07/2023 PS jobs added for DNS related details
     version 1.8 | 13/09/2023 Added support for collected individual DC login count from last 30 days in order to compare usages
+    version 1.9 | SSPR / PHS details added in ADSync report
 
     The script is kept as much modular as possible so that functions can be modified or added without altering the entire script
     It should be run as administrator and preferably Enterprise Administrator to get complete data. Its advised to run in demonstration environment to be sure first
