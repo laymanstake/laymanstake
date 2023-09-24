@@ -1783,8 +1783,6 @@ Function Get-LatencyTable {
                 $_
             }
         }
-
-        $JobResults.count
     }
 
     $null = $jobResults | Wait-Job
