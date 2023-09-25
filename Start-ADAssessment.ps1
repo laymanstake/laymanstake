@@ -3453,9 +3453,8 @@ Function Get-ADForestDetails {
     $DomainSummary = ($DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>") -replace '<td>Reg not found</td>', '<td bgcolor="red">Reg not found</td>' -replace "`n", "<br>"
     $DCLoginCountSummary = $DCLoginCount | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers login count Summary (Last 30 days)</h2>"
     if ($Latency) {
-        $LatencySummary = $LatencyTable | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Ping Latency between Sites</h2>"
-        
-        #$LatencyTable | ForEach-Object{ [pscustomobject]$_ } | Export-csv -nti "$env:userprofile\desktop\LatencyInfo_$(get-date -Uformat "%Y%m%d-%H%M%S").csv"
+        $LatencySummary = $LatencyTable | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Ping Latency between Sites</h2>"        
+        $LatencyTable | ForEach-Object{ [pscustomobject]$_ } | Export-csv -nti "$env:userprofile\desktop\LatencyInfo_$(get-date -Uformat "%Y%m%d-%H%M%S").csv"
     }
     $DomainHealthSumamry = ($ADHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controller health Summary</h2>") -replace "`n", "<br>" -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
     $ReplhealthSummary = ($ReplicationHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Replication health Summary</h2>") -replace "`n", "<br>"
