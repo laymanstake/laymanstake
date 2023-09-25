@@ -1782,8 +1782,6 @@ Function Get-LatencyTable {
                 $_
             }
         }
-
-        $JobResults.count
     }
 
     $null = $jobResults | Wait-Job
@@ -2424,7 +2422,7 @@ function Get-PotentialSvcAccount {
     $PotentialSvcUsers = Get-ADuser -filter { Enabled -eq $true } -Server $PDC -Credential $Credential -Properties CanonicalName, Displayname, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, LastLogonTimestamp, WhenCreated, WhenChanged, PasswordLastSet, description, memberof | Where-Object { $_.CannotChangePassword -OR $_.PasswordNeverExpires -OR $_.PasswordNotRequired -OR $_.SamAccountName -like "*svc*" } | Select-Object @{l = "Domain"; e = { $_.CanonicalName.split("/\")[0] } }, SamAccountName, Displayname, @{l = "Enabled"; e = { (& { If ($_.Enabled) { "Enabled" } Else { "Disabled" } }) } }, CannotChangePassword, PasswordNeverExpires, PasswordNotRequired, @{l = "Lastlogon"; e = { ([DateTime]::FromFileTime($_.LastLogonTimestamp)).ToString("MM/dd/yyyy HH:mm:ss") } }, @{l = "FineGrainedPasswordPolicy"; e = { "NA" } }, WhenCreated, WhenChanged, PasswordLastSet, @{l = "MemberOf"; e = { ($_.memberOf | Get-ADGroup).SamAccountName -join "`n" } }, description | Sort-Object Lastlogon    
     
     if ($PotentialSvcUsers) {
-        $PotentialSvcUsers = ($UserswithFGP)+($PotentialSvcUsers | Where-Object { $_.SamAccountName -notin $UserswithFGP.SamAccountNameP })
+        $PotentialSvcUsers = ($UserswithFGP) + ($PotentialSvcUsers | Where-Object { $_.SamAccountName -notin $UserswithFGP.SamAccountNameP })
     }
     else {
         $PotentialSvcUsers = $UserswithFGP
@@ -3454,9 +3452,8 @@ Function Get-ADForestDetails {
     $DomainSummary = ($DomainDetails | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domains Summary</h2>") -replace '<td>Reg not found</td>', '<td bgcolor="red">Reg not found</td>' -replace "`n", "<br>"
     $DCLoginCountSummary = $DCLoginCount | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controllers login count Summary (Last 30 days)</h2>"
     if ($Latency) {
-        $LatencySummary = $LatencyTable | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Ping Latency between Sites</h2>"
-        
-        #$LatencyTable | ForEach-Object{ [pscustomobject]$_ } | Export-csv -nti "$env:userprofile\desktop\LatencyInfo_$(get-date -Uformat "%Y%m%d-%H%M%S").csv"
+        $LatencySummary = $LatencyTable | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Ping Latency between Sites</h2>"        
+        $LatencyTable | ForEach-Object { [pscustomobject]$_ } | Export-csv -nti "$env:userprofile\desktop\LatencyInfo_$(get-date -Uformat "%Y%m%d-%H%M%S").csv"
     }
     $DomainHealthSumamry = ($ADHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>Domain Controller health Summary</h2>") -replace "`n", "<br>" -replace '<td>DC is Down</td>', '<td bgcolor="red">DC is Down</td>'
     $ReplhealthSummary = ($ReplicationHealth | ConvertTo-Html -As Table  -Fragment -PreContent "<h2>AD Replication health Summary</h2>") -replace "`n", "<br>"
