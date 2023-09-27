@@ -1426,9 +1426,7 @@ Function Get-ADDomainDetails {
     $DomainDetails = @()
     $UndesiredFeatures = ("ADFS-Federation", "DHCP", "Telnet-Client", "WDS", "Web-Server", "Web-Application-Proxy", "FS-DFS-Namespace", "FS-DFS-Replication")
 
-    $dcs = Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential
-
-    $LAPSEnabled = Get-ADComputer -LDAPFilter "(&(objectClass=computer)(ms-Mcs-AdmPwd=*)(ms-Mcs-AdmPwdExpirationTime=*))" -Server $PDC -Credential $Credential
+    $dcs = Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential    
 
     $LowestOSversion = [version]::New(20, 0, 0) # Randomly picked unusually high version number
     ForEach ($dc in $dcs) {
@@ -1457,6 +1455,8 @@ Function Get-ADDomainDetails {
     
     $PDC = (Test-Connection -Computername (Get-ADDomainController -Filter *  -Server $DomainName -Credential $Credential).Hostname -count 1 -AsJob | Get-Job | Receive-Job -Wait | Where-Object { $null -ne $_.Responsetime } | sort-object Responsetime | select-Object Address -first 1).Address
     $null = Get-Job | Remove-Job
+
+    $LAPSEnabled = Get-ADComputer -LDAPFilter "(&(objectClass=computer)(ms-Mcs-AdmPwd=*)(ms-Mcs-AdmPwdExpirationTime=*))" -Server $PDC -Credential $Credential
 
     if ((Get-ADObject -Server $PDC -Filter { name -like "SYSVOL*" } -Properties replPropertyMetaData -Credential $Credential).ReplPropertyMetadata.count -gt 0) {
         $sysvolStatus = "DFSR"
@@ -1489,7 +1489,7 @@ Function Get-ADDomainDetails {
 
     foreach ($dc in $dcs) {
         $dcJobs += Start-Job -ScriptBlock {
-            param($dc, [pscredential]$Credential, $DomainName, $PDC, $possibleDFL, $sysvolStatus, $FSR2DFSRStatus, $UndesiredFeatures, $logpath)
+            param($dc, [pscredential]$Credential, $DomainName, $PDC, $possibleDFL, $sysvolStatus, $FSR2DFSRStatus, $UndesiredFeatures, $logpath, $LAPSEnabled)
             
             $results = @()            
             $NLParameters = $null
@@ -1632,7 +1632,7 @@ Function Get-ADDomainDetails {
                 ReadOnly                    = $dc.IsReadOnly                
                 UndesiredFeatures           = $UndesiredFeature -join "`n"                
             }
-        } -ArgumentList $dc, $Credential, $DomainName, $PDC, $possibleDFL, $sysvolStatus, $FSR2DFSRStatus, $UndesiredFeatures, $logpath -InitializationScript $initscript
+        } -ArgumentList $dc, $Credential, $DomainName, $PDC, $possibleDFL, $sysvolStatus, $FSR2DFSRStatus, $UndesiredFeatures, $logpath, $LAPSEnabled -InitializationScript $initscript
         
         $message = "Working over domain: $DomainName domain controller $($dc.hostName) details."
         New-BaloonNotification -title "Information" -message $message
