@@ -1428,6 +1428,8 @@ Function Get-ADDomainDetails {
 
     $dcs = Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential
 
+    $LAPSEnabled = Get-ADComputer -LDAPFilter "(&(objectClass=computer)(ms-Mcs-AdmPwd=*)(ms-Mcs-AdmPwdExpirationTime=*))" -Server $PDC -Credential $Credential
+
     $LowestOSversion = [version]::New(20, 0, 0) # Randomly picked unusually high version number
     ForEach ($dc in $dcs) {
         $version = $dc.OperatingSystemVersion -replace " ", "." -replace "\(", "" -replace "\)", "" -split "\."        
@@ -1613,7 +1615,7 @@ Function Get-ADDomainDetails {
                 FSMORoles                   = (Get-ADDomainController -Identity $dc.hostname -Server $PDC -Credential $Credential | Select-Object @{l = "FSMORoles"; e = { $_.OperationMasterRoles -join ", " } }).FSMORoles
                 Sysvol                      = $sysvolStatus
                 FSR2DFSR                    = $FSR2DFSRStatus
-                LAPS                        = $null -ne (Get-ADObject -LDAPFilter "(name=ms-Mcs-AdmPwd)" -Server $PDC -Credential $Credential)
+                LAPS                        = $null -ne $LAPSEnabled
                 NTPServer                   = ($Results[7] | Select-Object -Unique) -join "`n"
                 NTPType                     = $Results[8]
                 SMBv1Client                 = $SMBStatus.SMBv1ClientEnabled
