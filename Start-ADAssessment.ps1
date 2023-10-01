@@ -1750,12 +1750,12 @@ Function Get-LatencyTable {
         )
         
         try {
-            $result = Test-Connection -ComputerName $targetServer -Count 1
+            $result = Test-Connection -ComputerName $targetServer -Count 3 -ErrorAction SilentlyContinue
  
             [pscustomobject] @{
                 DC           = $sourceServer
                 TargetServer = $targetServer
-                ResponseTime = $result.ResponseTime
+                ResponseTime = [math]::Round(($result.ResponseTime | Measure-Object -Average).average)
             }    
         }
         catch {
