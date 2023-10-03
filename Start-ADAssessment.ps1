@@ -13,7 +13,7 @@
     version 1.6 | 08/07/2023 Poential Service account inventory function added
     version 1.7 | 10/07/2023 PS jobs added for DNS related details
     version 1.8 | 13/09/2023 Added support for collected individual DC login count from last 30 days in order to compare usages
-    version 1.9 | SSPR / PHS details added in ADSync report
+    version 1.9 | 22/09/2023 SSPR / PHS details added in ADSync report and Latency Report between DCs
 
     The script is kept as much modular as possible so that functions can be modified or added without altering the entire script
     It should be run as administrator and preferably Enterprise Administrator to get complete data. Its advised to run in demonstration environment to be sure first
@@ -57,7 +57,8 @@
     34. Test-ADHealth                   # This function performs a health check of the Active Directory environment, including checks for replication, DNS, AD trust, and other common issues.
     35. Get-ADReplicationHealth         # This function checks the replication health of domain controllers in the Active Directory domain.
     36. Get-ADForestDetails             # This function retrieves detailed information about the Active Directory forest using the earlier defined functions and generates the html report.
-    37. Get-DCLoginCount                # THis function retrives the login counts against each domain controller in the given domain for last 30 days
+    37. Get-DCLoginCount                # This function retrives the login counts against each domain controller in the given domain for last 30 days
+    38. Get-LatencyTables               # This function provides latency between given list of servers, can helps in detemining reductant DCs
 
 #>
 
