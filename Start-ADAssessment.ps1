@@ -1608,7 +1608,7 @@ Function Get-ADDomainDetails {
                 Domain                      = $DomainName
                 DomainFunctionLevel         = (Get-ADDomain -Identity $DomainName -Credential $Credential).DomainMode
                 PossibleDomainFunctionLevel = $possibleDFL
-                DCName                      = $dc.Hostname
+                DCName                      = $dc.name
                 Site                        = $dc.site
                 OSVersion                   = $dc.OperatingSystem
                 IPAddress                   = $dc.IPv4Address
@@ -1697,8 +1697,7 @@ Function Get-ADSiteDetails {
                 }
             }            
         }
-        else {
-            foreach ($dc in $dcs) {
+        else {            
                 try {
                     $links = Get-ADReplicationSiteLink -Filter * -Server $PDC -Credential $Credential -Properties InterSiteTransportProtocol, replInterval, ProtectedFromAccidentalDeletion | Where-Object { $_.sitesIncluded -contains $site.DistinguishedName }
                 }
@@ -1712,7 +1711,7 @@ Function Get-ADSiteDetails {
                         SiteCreated                         = $Site.WhenCreated
                         SiteModified                        = $Site.WhenChanged
                         Subnets                             = ($site.subnets | Get-ADReplicationSubnet -Server $PDC  -Credential $Credential | Select-Object Name).Name -join "`n"
-                        DCinSite                            = $dc.Name
+                        DCinSite                            = $dcs.Name -join "`n"
                         SiteLink                            = $link.Name
                         SiteLinkType                        = $link.InterSiteTransportProtocol
                         SiteLinkCost                        = $link.Cost
@@ -1720,8 +1719,7 @@ Function Get-ADSiteDetails {
                         SiteProtectedFromAccidentalDeletion = $site.ProtectedFromAccidentalDeletion
                         LinkProtectedFromAccidentalDeletion = $link.ProtectedFromAccidentalDeletion
                     }     
-                }
-            }            
+                }                        
         }
         $message = "Working over domain: $DomainName site $($site.Name) details."
         New-BaloonNotification -title "Information" -message $message
@@ -1783,6 +1781,11 @@ Function Get-LatencyTable {
                 $JobResults += $job
             }
             catch {
+                $JobResults += [pscustomobject] @{
+                DC           = $sourceServer
+                TargetServer = $targetServer
+                ResponseTime = "NR"
+            }
                 $_
             }
         }
@@ -2036,6 +2039,7 @@ Function Get-DomainServerDetails {
             DomainName     = $DomainName
             OSName         = $OS.Name
             Count          = $OS.count
+            Enabled       = ($Servers | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.Enabled -eq $true }).Name.Count
             Disabled       = ($Servers | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.Enabled -eq $false }).Name.Count
             StaleCount_90d = ($Servers | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.PasswordLastSet -lt $Today.AddDays( - ($InactivePeriod)) }).Name.Count
         }        
@@ -2066,6 +2070,7 @@ Function Get-DomainClientDetails {
                 DomainName     = $DomainName
                 OSName         = $OS.Name
                 Count          = $OS.count
+                Enabled       = ($Workstations | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.Enabled -eq $true }).Name.Count
                 Disabled       = ($Workstations | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.Enabled -eq $false }).Name.Count
                 StaleCount_90d = ($Workstations | Where-Object { $_.OperatingSystem -eq $OS.Name -AND $_.PasswordLastSet -lt $Today.AddDays( - ($InactivePeriod)) }).Name.Count
                 
@@ -3251,9 +3256,9 @@ Function Get-ADForestDetails {
             New-BaloonNotification -title "Information" -message $message
             Write-Log -logtext $message -logpath $logpath
 
-            $temp = $SiteDetails | Where-Object { $_.DCInSite } | select-Object SiteName, DCInSite | Group-Object SiteName
-            $servers = ($temp | Select-Object Name, @{l = "dc"; e = { ($_.Group[0]).DCInSite } } | Where-Object { $_.DC -ne "No DCs in site" }).Dc
-
+            #$temp = $SiteDetails | Where-Object { $_.DCInSite } | select-Object SiteName, DCInSite | Group-Object SiteName
+            #$servers = ($temp | Select-Object Name, @{l = "dc"; e = { ($_.Group[0]).DCInSite } } | Where-Object { $_.DC -ne "No DCs in site" }).Dc
+            $servers = ($DomainDetails | Where-Object { $_.Domain -eq $domain }).DCName
             $LatencyTable += Get-LatencyTable -Servers $servers -DomainName $domain            
 
             $message = "Details for domain: $Domain site latency details done."
