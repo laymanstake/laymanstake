@@ -368,7 +368,7 @@ Function Get-ADFSDetails {
     $jobs = @()
     
     # Filtering out disabled computers or stale computers
-    Get-ADComputer -Filter { Enabled -eq $True -and OperatingSystem -like "*Server*" } -Server $DomainName  -Properties OperatingSystem, LastLogonDate | Where-Object { $_.LastLogonDate -gt (Get-Date).AddDays(-30) } |
+    Get-ADComputer -Filter { Enabled -eq $True -and OperatingSystem -like "*Server*" } -Server $DomainName  -Properties OperatingSystem, PasswordLastSet | Where-Object { $_.PasswordLastSet -gt (Get-Date).AddDays(-45) } |
     ForEach-Object {
         while ((Get-Job -State Running).Count -ge $maxParallelJobs) {
             Start-Sleep -Milliseconds 50  # Wait for 0.05 seconds before checking again
