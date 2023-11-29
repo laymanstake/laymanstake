@@ -1961,7 +1961,7 @@ Function Get-BuiltInUserDetails {
     $BuiltInUsers = @()
 
     ForEach ($UserSID in $BuiltInUserSIDs ) {
-        $User = Get-ADUser -Server $PDC -Credential $Credential -Identity $UserSID[1] -Properties SamAccountName, WhenCreated, LastLogonTimestamp, Enabled, LastBadPasswordAttempt, PasswordLastSet | select-Object SamAccountName, WhenCreated, @{l = "Lastlogon"; e = { [DateTime]::FromFileTime($_.LastLogonTimestamp) } }, Enabled, LastBadPasswordAttempt, PasswordLastSet
+        $User = Get-ADUser -Server $PDC -Credential $Credential -Identity $UserSID[1] -Properties SamAccountName, WhenCreated, LastLogonDate, Enabled, LastBadPasswordAttempt, PasswordLastSet | select-Object SamAccountName, WhenCreated, LastLogonDate, Enabled, LastBadPasswordAttempt, PasswordLastSet
     
         $BuiltInUsers += [PSCustomObject]@{
             DomainName             = $DomainName
@@ -1969,7 +1969,7 @@ Function Get-BuiltInUserDetails {
             UserName               = $user.SamAccountName
             Enabled                = $user.Enabled
             WhenCreated            = $user.WhenCreated
-            LastLogonDate          = $User.LastLogon
+            LastLogonDate          = $User.LastLogonDate
             PasswordLastSet        = $User.PasswordLastSet
             LastBadPasswordAttempt = $User.LastBadPasswordAttempt
             IsRenamed              = $UserSID[0] -ne $user.SamAccountName
