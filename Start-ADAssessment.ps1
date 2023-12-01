@@ -820,7 +820,7 @@ Function Get-AdminCountDetails {
     $null = Get-Job | Remove-Job
     
     $protectedGroups = (Get-ADGroup -LDAPFilter "(&(objectCategory=group)(adminCount=1))" -Server $PDC -Credential $Credential).Name
-    $ProtectedUsers = ($protectedGroups | ForEach-Object { Get-ADGroupMemberRecursive -GroupName $_ -DomainName $DomainName -Credential $Credential } | Sort-Object Name -Unique).Name
+    $ProtectedUsers = ($protectedGroups | ForEach-Object { Get-ADGroupMember -GroupName $_ -DomainName $DomainName -Credential $Credential -Recursive } | Sort-Object Name -Unique).Name
     $UserWithAdminCount = (Get-ADuser -LDAPFilter "(&(objectCategory=user)(objectClass=user)(adminCount=1))" -Server $PDC -Credential $Credential -Properties AdminCount).Name    
     $UndesiredAdminCount = (Compare-Object -ReferenceObject $UserWithAdminCount -DifferenceObject $ProtectedUsers | Where-Object { $_.SideIndicator -eq '<=' -AND $_.InputObject -ne "krbtgt" }).InputObject
 
