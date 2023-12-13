@@ -1429,14 +1429,14 @@ Function Get-ADDomainDetails {
 
     $dcs = Get-ADDomainController -Filter * -Server $DomainName -Credential $Credential    
 
-    $LowestOSversion = [version]::New(20, 0, 0) # Randomly picked unusually high version number
+    $LowestOSversion = New-Object System.Version 20, 0, 0 # Randomly picked unusually high version number
     ForEach ($dc in $dcs) {
         $version = $dc.OperatingSystemVersion -replace " ", "." -replace "\(", "" -replace "\)", "" -split "\."        
         $major = [int]$version[0]
         $minor = [int]$version[1]
         $build = [int]$version[2]
 
-        $osversion = [version]::New($major, $minor, $build) # Covert into a proper version
+        $osversion = New-Object System.Version $major, $minor, $build # Covert into a proper version
 
         If ($osversion -lt $LowestOSversion ) {
             $LowestOSversion = $osversion
