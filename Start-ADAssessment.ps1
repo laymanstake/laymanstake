@@ -792,7 +792,7 @@ Function Get-ADGroupMemberRecursive {
     foreach ($member in $members) {
         If ($member.Substring($member.IndexOf("DC=")) -eq $Domain.DistinguishedName) {
             if ((Get-ADObject -identity $member -server $PDC -Credential $Credential).Objectclass -eq "group" ) { 
-                $membersRecursive += Get-ADGroupMember $member -DomainName $Domain.DNSRoot -Credential $Credential -recursive
+                $membersRecursive += Get-ADGroupMember $member -Server $Domain.DNSRoot -Credential $Credential -recursive
             }
             else {
                 try {
@@ -820,7 +820,7 @@ Function Get-AdminCountDetails {
     $null = Get-Job | Remove-Job
     
     $protectedGroups = (Get-ADGroup -LDAPFilter "(&(objectCategory=group)(adminCount=1))" -Server $PDC -Credential $Credential).Name
-    $ProtectedUsers = ($protectedGroups | ForEach-Object { Get-ADGroupMember $_ -DomainName $DomainName -Credential $Credential -Recursive } | Sort-Object Name -Unique).Name
+    $ProtectedUsers = ($protectedGroups | ForEach-Object { Get-ADGroupMember $_ -server $DomainName -Credential $Credential -Recursive } | Sort-Object Name -Unique).Name
     $UserWithAdminCount = (Get-ADuser -LDAPFilter "(&(objectCategory=user)(objectClass=user)(adminCount=1))" -Server $PDC -Credential $Credential -Properties AdminCount).Name    
     $UndesiredAdminCount = (Compare-Object -ReferenceObject $UserWithAdminCount -DifferenceObject $ProtectedUsers | Where-Object { $_.SideIndicator -eq '<=' -AND $_.InputObject -ne "krbtgt" }).InputObject
 
