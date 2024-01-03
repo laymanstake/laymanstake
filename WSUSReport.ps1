@@ -2,7 +2,7 @@
 # Performs an audit of WSUS
 # Outputs the results to a text file.
 # version 1.2
-# 21 May 2017
+# 21 May 2017 / Test commit
 
 [void][reflection.assembly]::LoadWithPartialName("Microsoft.UpdateServices.Administration")
 
@@ -13,7 +13,7 @@ $UpdateStatus = @()
 $SummaryStatus = @()
 
 # For WSUS servers catering servers
-$WSUSServers = ("XYZ","ABC","WSUS1")
+$WSUSServers = ("XYZ", "ABC", "WSUS1")
 
 $a0 = ($WSUSServers | Measure-Object).count
 $b0 = 0
