@@ -9,7 +9,7 @@
 
 - 👋 Hi, I’m Nitish Kumar @laymanstake. Working in Windows Infra since almost two decades now. <br>
 - 👀 I’m interested in O365/ Azure/ System Administration and PowerShell <br>
-- 🌱 I’m currently learning Powershell, DevOps, Python and enjoying Grafana, Prometheus <br>
+- 🌱 I’m currently learning Powershell, DevOps, Co-pilot and enjoying Grafana, Prometheus <br>
 - 💞️ I’m looking to collaborate on PowerShell, Devops. </br>
 - :mailbox:How to reach me: <a href="https://www.linkedin.com/in/kumarnitish/"><img src="https://img.shields.io/badge/-Nitish Kumar-blue?style=flat&logo=Linkedin&logoColor=white" alt="LinkedIn Badge"/> </a> </br>
 
