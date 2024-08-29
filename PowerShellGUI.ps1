@@ -1,3 +1,23 @@
+<#  
+    Author : Nitish Kumar
+    Various PowerShell GUI options
+    version 1.0 | 01/01/2024 Initial version
+
+    The purpose of the script is to explore various GUI options like tooltip, rich notifications, spalsh screen, charts etc in PowerShell
+    Disclaimer: This script is designed to only demonstration purposes, do your due dilligence before using one of the functions
+
+    LIST OF FUNCTIONS
+    1.  New-SplashFromImage             # This function creates a image splash (no borders) in center of screen
+    2.  New-OkCancelBox                 # This function creates an Ok cancel box
+    3.  New-FileDialog                  # This function creates a file selection box with given set of extensions and returns the path for the file selected
+    4.  New-BaloonNotification          # This function creates a ballon notification with text and has option for even potential actions on clicking
+    5.  Get-PasswordExpiry              # This function provides the password expiry of given domain account without making use of ActiveDirectory module, works only for domain joined machines
+    6.  Get-Icon                        # This function extracts the icons in jpeg or any other  requested format from a given dll or exe file
+    7.  New-ToastNotification           # This function creates a rich toast notification
+    8.  New-SaveDialog                  # This function creates a save file dialogue and returns the path of saved file. Currently it doesn't actually creates the file
+    9.  New-Chart                       # This function creates a chart image file
+#>
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Windows.Forms.DataVisualization
 
